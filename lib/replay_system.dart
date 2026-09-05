@@ -1,42 +1,6 @@
 import 'dart:convert';
+import '../models/game_command.dart';
 
-// Định nghĩa loại hành động trong game
-enum CommandType { move, useSkill, spawnUnit }
-
-// Mỗi hành động chứa thông tin cần thiết và mốc thời gian (Tick)
-class GameCommand {
-  final int tick;
-  final String unitId;
-  final CommandType type;
-  final double targetX;
-  final double targetY;
-
-  GameCommand({
-    required this.tick,
-    required this.unitId,
-    required this.type,
-    required this.targetX,
-    required this.targetY,
-  });
-
-  Map<String, dynamic> toJson() => {
-    'tick': tick,
-    'unitId': unitId,
-    'type': type.name,
-    'x': targetX,
-    'y': targetY,
-  };
-
-  factory GameCommand.fromJson(Map<String, dynamic> json) => GameCommand(
-    tick: json['tick'],
-    unitId: json['unitId'],
-    type: CommandType.values.byName(json['type']),
-    targetX: json['x'],
-    targetY: json['y'],
-  );
-}
-
-// Trình quản lý ghi/đọc Replay
 class ReplayManager {
   final List<GameCommand> recordedCommands = [];
   bool isReplayMode = false;

@@ -7,6 +7,7 @@ import 'package:flame/experimental.dart';
 import 'package:flame/game.dart';
 import 'package:flame_tiled/flame_tiled.dart';
 import 'package:flutter/foundation.dart';
+import 'package:nono_combat_light/replay_system.dart';
 
 import 'components/anime_hero.dart';
 import 'components/bottom_hud.dart';
@@ -31,9 +32,11 @@ Iterable<(int, int)> _calculatePathInBackground(Map<String, dynamic> params) {
   return aStar.findThePath();
 }
 
-class NonoCombat extends FlameGame with PointerMoveCallbacks, TapCallbacks {
+class NonoCombat extends FlameGame
+    with PointerMoveCallbacks, TapCallbacks, SecondaryTapCallbacks {
   late TiledComponent mapComponent;
   late AnimeHero hero;
+  final ReplayManager replayManager = ReplayManager();
 
   Set<(int, int)> barrierSet = {};
   List<(int, int)> barrierList = [];
@@ -64,12 +67,10 @@ class NonoCombat extends FlameGame with PointerMoveCallbacks, TapCallbacks {
     );
     world.add(hero);
 
-    // Ép Viewfinder luôn xoay quanh tâm hiển thị
     camera.viewfinder.anchor = Anchor.center;
     camera.viewfinder.zoom = GameConfig.defaultZoom;
 
     _setupCameraViewportAndBounds();
-
     camera.follow(hero);
 
     final hudHeight = GameConfig.getBottomHudHeight(canvasSize.y);
@@ -79,20 +80,15 @@ class NonoCombat extends FlameGame with PointerMoveCallbacks, TapCallbacks {
   void _setupCameraViewportAndBounds() {
     if (!isLoaded && !mapComponent.isLoaded) return;
 
-    final gameSize = canvasSize;
-
-    // 1. Viewport chiếm trọn toàn bộ màn hình (Fullscreen)
-    camera.viewport.size = gameSize;
+    camera.viewport.size = canvasSize;
 
     final mapWidth = mapComponent.width;
     final mapHeight = mapComponent.height;
 
-    // 2. Kích thước tầm nhìn thực tế toàn màn hình (đã tính Zoom)
     final visibleRect = camera.visibleWorldRect;
     final halfWidth = visibleRect.width / 2;
     final halfHeight = visibleRect.height / 2;
 
-    // 3. Khóa biên Camera cho toàn màn hình
     camera.setBounds(
       Rectangle.fromLTWH(
         halfWidth,
@@ -103,7 +99,6 @@ class NonoCombat extends FlameGame with PointerMoveCallbacks, TapCallbacks {
     );
   }
 
-  /// Hàm di chuyển Camera tuyệt đối an toàn (Dùng cho MiniMap)
   void moveCameraTo(Vector2 targetWorldPos) {
     camera.stop();
 
@@ -114,7 +109,6 @@ class NonoCombat extends FlameGame with PointerMoveCallbacks, TapCallbacks {
     final halfWidth = visibleRect.width / 2;
     final halfHeight = visibleRect.height / 2;
 
-    // Giới hạn tâm Camera không vượt quá bán kính tầm nhìn tới mép map
     final minX = halfWidth;
     final maxX = max(minX, mapWidth - halfWidth);
     final minY = halfHeight;
@@ -160,7 +154,6 @@ class NonoCombat extends FlameGame with PointerMoveCallbacks, TapCallbacks {
     super.update(dt);
     currentTick++;
 
-    // Lấy Joystick từ BottomHudComponent
     final hud = camera.viewport.children
         .whereType<BottomHudComponent>()
         .firstOrNull;
@@ -173,12 +166,9 @@ class NonoCombat extends FlameGame with PointerMoveCallbacks, TapCallbacks {
     }
   }
 
+  // --- THAO TÁC CẢM ỨNG / CHUỘT TRÁI ---
   @override
   void onTapDown(TapDownEvent event) {
-    final hudHeight = GameConfig.getBottomHudHeight(canvasSize.y);
-    if (event.canvasPosition.y >= canvasSize.y - hudHeight) {
-      return;
-    }
     isPointerDown = true;
     lastPointerPosition = event.canvasPosition;
     _handlePointerTarget(event.canvasPosition, forceUpdate: true);
@@ -190,6 +180,12 @@ class NonoCombat extends FlameGame with PointerMoveCallbacks, TapCallbacks {
   @override
   void onTapCancel(TapCancelEvent event) => _stopHolding();
 
+  // --- THAO TÁC CHUỘT PHẢI (CHO DESKTOP: WINDOWS / MACOS / LINUX) ---
+  @override
+  void onSecondaryTapDown(SecondaryTapDownEvent event) {
+    _handlePointerTarget(event.canvasPosition, forceUpdate: true);
+  }
+
   void _stopHolding() {
     isPointerDown = false;
     lastPointerPosition = null;
@@ -199,11 +195,6 @@ class NonoCombat extends FlameGame with PointerMoveCallbacks, TapCallbacks {
   @override
   void onPointerMove(PointerMoveEvent event) {
     if (!isPointerDown) return;
-
-    final hudHeight = GameConfig.getBottomHudHeight(canvasSize.y);
-    if (event.canvasPosition.y >= canvasSize.y - hudHeight) {
-      return;
-    }
     lastPointerPosition = event.canvasPosition;
     _handlePointerTarget(event.canvasPosition);
   }
@@ -296,16 +287,19 @@ class NonoCombat extends FlameGame with PointerMoveCallbacks, TapCallbacks {
         targetY: worldTap.y,
       );
 
+      // Ghi lại command vào Replay System
+      replayManager.recordCommand(cmd);
+
       hero.moveAlongPath(pathPoints, cmd);
     }
   }
 
   (int, int)? _findNearestWalkableTile(
-    (int, int) target,
-    (int, int) heroTile,
-    int maxCols,
-    int maxRows,
-  ) {
+      (int, int) target,
+      (int, int) heroTile,
+      int maxCols,
+      int maxRows,
+      ) {
     if (!barrierSet.contains(target)) return target;
 
     (int, int)? bestTile;

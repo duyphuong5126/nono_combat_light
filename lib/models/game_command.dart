@@ -1,4 +1,4 @@
-enum CommandType { move, attack, useSkill, stop }
+enum CommandType { move, attack, useSkill, stop, spawnUnit }
 
 class GameCommand {
   final int tick;
@@ -30,8 +30,8 @@ class GameCommand {
     tick: json['tick'],
     unitId: json['unitId'],
     type: CommandType.values.byName(json['type']),
-    targetX: json['x'],
-    targetY: json['y'],
+    targetX: (json['x'] as num).toDouble(),
+    targetY: (json['y'] as num).toDouble(),
     targetEntityId: json['targetEntityId'],
   );
 }

@@ -5,6 +5,7 @@ import '../config/game_config.dart';
 import '../main_game.dart';
 import 'minimap.dart';
 
+/// Overlay HUD cố định dưới đáy màn hình chứa Joystick và MiniMap
 class BottomHudComponent extends PositionComponent
     with HasGameReference<NonoCombat> {
   final double hudHeight;
@@ -12,7 +13,7 @@ class BottomHudComponent extends PositionComponent
   late final MiniMapComponent miniMap;
 
   BottomHudComponent({required this.hudHeight}) {
-    priority = 100;
+    priority = 100; // Đảm bảo HUD luôn hiển thị đè lên các đối tượng Game World
   }
 
   @override
@@ -22,12 +23,14 @@ class BottomHudComponent extends PositionComponent
     final padding = GameConfig.hudHorizontalPadding;
     final usableHeight = hudHeight - (GameConfig.miniMapMargin * 2);
 
+    // Khởi tạo MiniMap góc dưới bên trái
     miniMap = MiniMapComponent(
       miniMapSize: usableHeight,
       customOffset: Vector2(padding, GameConfig.miniMapMargin),
     );
     add(miniMap);
 
+    // Khởi tạo Joystick góc dưới bên phải
     final knobPaint = Paint()..color = Colors.white.withValues(alpha: 0.8);
     final backgroundPaint = Paint()..color = Colors.black38;
 
@@ -52,6 +55,7 @@ class BottomHudComponent extends PositionComponent
   @override
   void onGameResize(Vector2 size) {
     super.onGameResize(size);
+    // Tự động căn lại vị trí HUD khi thay đổi kích thước màn hình
     position = Vector2(0, game.canvasSize.y - hudHeight);
     this.size = Vector2(game.canvasSize.x, hudHeight);
   }
@@ -60,12 +64,12 @@ class BottomHudComponent extends PositionComponent
   void render(Canvas canvas) {
     super.render(canvas);
 
-    // Vẽ nền HUD bán trong suốt (ví dụ: độ mờ 40% - Alpha 0.4)
+    // Vẽ nền HUD mờ 40%
     final hudBgPaint = Paint()
       ..color = const Color(0xFF1E1E1E).withValues(alpha: 0.4);
     canvas.drawRect(Rect.fromLTWH(0, 0, size.x, size.y), hudBgPaint);
 
-    // Đường viền ngăn cách phía trên HUD
+    // Đường kẻ phân cách đỉnh HUD
     final borderPaint = Paint()
       ..color = Colors.white10
       ..style = PaintingStyle.stroke

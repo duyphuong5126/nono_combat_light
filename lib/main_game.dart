@@ -14,6 +14,7 @@ import 'components/bottom_hud.dart';
 import 'config/game_config.dart';
 import 'models/game_command.dart';
 
+/// Hàm chạy thuật toán A* trong Isolate/Luồng phụ để tránh giật lag UI
 Iterable<(int, int)> _calculatePathInBackground(Map<String, dynamic> params) {
   final int rows = params['rows'];
   final int columns = params['columns'];
@@ -32,6 +33,7 @@ Iterable<(int, int)> _calculatePathInBackground(Map<String, dynamic> params) {
   return aStar.findThePath();
 }
 
+/// Core Game Loop chính xử lý Map, Input, Pathfinding & Camera
 class NonoCombat extends FlameGame
     with PointerMoveCallbacks, TapCallbacks, SecondaryTapCallbacks {
   late TiledComponent mapComponent;
@@ -46,12 +48,13 @@ class NonoCombat extends FlameGame
   Vector2? lastPointerPosition;
   (int, int)? _lastTargetTile;
 
-  int currentTick = 0;
+  int currentTick = 0; // Đếm số Tick logic của Game
 
   @override
   Future<void> onLoad() async {
     super.onLoad();
 
+    // 1. Load TileMap
     mapComponent = await TiledComponent.load(
       'map.tmx',
       Vector2.all(GameConfig.tileSize),
@@ -59,24 +62,29 @@ class NonoCombat extends FlameGame
     );
     world.add(mapComponent);
 
+    // 2. Tạo bản đồ vật cản từ Layer 'Obstacles'
     _buildBarrierGrid();
 
+    // 3. Tạo Hero
     hero = AnimeHero(
       radius: GameConfig.heroRadius,
       position: Vector2(GameConfig.tileSize * 1.5, GameConfig.tileSize * 1.5),
     );
     world.add(hero);
 
+    // 4. Cấu hình Camera
     camera.viewfinder.anchor = Anchor.center;
     camera.viewfinder.zoom = GameConfig.defaultZoom;
 
     _setupCameraViewportAndBounds();
     camera.follow(hero);
 
+    // 5. Thêm HUD vào Viewport
     final hudHeight = GameConfig.getBottomHudHeight(canvasSize.y);
     camera.viewport.add(BottomHudComponent(hudHeight: hudHeight));
   }
 
+  /// Cài đặt giới hạn Camera không nhảy ra khỏi rìa Map
   void _setupCameraViewportAndBounds() {
     if (!isLoaded && !mapComponent.isLoaded) return;
 
@@ -99,8 +107,9 @@ class NonoCombat extends FlameGame
     );
   }
 
+  /// Dịch chuyển Camera tới tọa độ thế giới (Dùng khi tap MiniMap)
   void moveCameraTo(Vector2 targetWorldPos) {
-    camera.stop();
+    camera.stop(); // Tạm dừng camera follow Hero
 
     final mapWidth = mapComponent.width;
     final mapHeight = mapComponent.height;
@@ -128,6 +137,7 @@ class NonoCombat extends FlameGame
     }
   }
 
+  /// Duyệt Layer 'Obstacles' để lấy tập hợp các ô cản
   void _buildBarrierGrid() {
     final tileMap = mapComponent.tileMap;
     final mapWidth = tileMap.map.width;
@@ -152,8 +162,9 @@ class NonoCombat extends FlameGame
   @override
   void update(double dt) {
     super.update(dt);
-    currentTick++;
+    currentTick++; // Tăng đếm Game Tick
 
+    // Xử lý di chuyển bằng Joystick
     final hud = camera.viewport.children
         .whereType<BottomHudComponent>()
         .firstOrNull;
@@ -199,6 +210,7 @@ class NonoCombat extends FlameGame
     _handlePointerTarget(event.canvasPosition);
   }
 
+  /// Tính toán tọa độ Tile khi nhấp màn hình
   void _handlePointerTarget(Vector2 canvasPos, {bool forceUpdate = false}) {
     final worldTap = camera.globalToLocal(canvasPos);
 
@@ -222,6 +234,7 @@ class NonoCombat extends FlameGame
     }
   }
 
+  /// Gửi yêu cầu tính toán đường đi A*
   Future<void> _requestPathToPosition(Vector2 canvasPos) async {
     if (isCalculatingPath) return;
 
@@ -249,6 +262,7 @@ class NonoCombat extends FlameGame
       realHeight - 1,
     );
 
+    // Tự động tìm ô trống hợp lệ gần nhất nếu nhấp trúng vật cản
     final validTarget = _findNearestWalkableTile(
       (rawEndX, rawEndY),
       (startX, startY),
@@ -259,6 +273,7 @@ class NonoCombat extends FlameGame
 
     isCalculatingPath = true;
 
+    // Gọi thuật toán A* trên luồng phụ compute()
     final result = await compute(_calculatePathInBackground, {
       'rows': realHeight,
       'columns': realWidth,
@@ -279,6 +294,7 @@ class NonoCombat extends FlameGame
         );
       }).toList();
 
+      // Đóng gói Command phục vụ Replay
       final cmd = GameCommand(
         tick: currentTick,
         unitId: 'hero_1',
@@ -287,19 +303,18 @@ class NonoCombat extends FlameGame
         targetY: worldTap.y,
       );
 
-      // Ghi lại command vào Replay System
-      replayManager.recordCommand(cmd);
-
+      replayManager.recordCommand(cmd); // Ghi lại log
       hero.moveAlongPath(pathPoints, cmd);
     }
   }
 
+  /// Thuật toán tìm ô đi được gần nhất dựa trên điểm số trọng số khoảng cách
   (int, int)? _findNearestWalkableTile(
-      (int, int) target,
-      (int, int) heroTile,
-      int maxCols,
-      int maxRows,
-      ) {
+    (int, int) target,
+    (int, int) heroTile,
+    int maxCols,
+    int maxRows,
+  ) {
     if (!barrierSet.contains(target)) return target;
 
     (int, int)? bestTile;

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart' hide PointerMoveEvent;
 import '../config/game_config.dart';
 import '../main_game.dart';
 
+/// Component MiniMap hỗ trợ Render thu nhỏ bản đồ và Kéo/Tap di chuyển Camera
 class MiniMapComponent extends PositionComponent
     with HasGameReference<NonoCombat>, TapCallbacks, PointerMoveCallbacks {
   final double miniMapSize;
@@ -22,14 +23,10 @@ class MiniMapComponent extends PositionComponent
   }
 
   @override
-  void onTapUp(TapUpEvent event) {
-    _isDragging = false;
-  }
+  void onTapUp(TapUpEvent event) => _isDragging = false;
 
   @override
-  void onTapCancel(TapCancelEvent event) {
-    _isDragging = false;
-  }
+  void onTapCancel(TapCancelEvent event) => _isDragging = false;
 
   @override
   void onPointerMove(PointerMoveEvent event) {
@@ -38,6 +35,7 @@ class MiniMapComponent extends PositionComponent
     }
   }
 
+  /// Chuyển đổi tọa độ trên MiniMap sang tọa độ Thế giới (World Space) và dịch chuyển Camera
   void _moveCameraToMinimapPoint(Vector2 localTouchPos) {
     final mapWidth = game.mapComponent.width;
     final mapHeight = game.mapComponent.height;
@@ -65,11 +63,13 @@ class MiniMapComponent extends PositionComponent
     final scaleX = miniMapSize / mapWidth;
     final scaleY = miniMapSize / mapHeight;
 
+    // 1. Vẽ nền MiniMap (Màu đen)
     canvas.drawRect(
       Rect.fromLTWH(0, 0, miniMapSize, miniMapSize),
       Paint()..color = Colors.black,
     );
 
+    // 2. Vẽ các ô vật cản (Màu xám)
     final barrierPaint = Paint()..color = Colors.grey.withValues(alpha: 0.8);
     for (final barrier in game.barrierSet) {
       final bx = barrier.$1 * GameConfig.tileSize * scaleX;
@@ -79,6 +79,7 @@ class MiniMapComponent extends PositionComponent
       canvas.drawRect(Rect.fromLTWH(bx, by, bw, bh), barrierPaint);
     }
 
+    // 3. Vẽ khung nhìn của Camera hiện tại (Hình chữ nhật màu trắng)
     final cameraRect = game.camera.visibleWorldRect;
     final viewPaint = Paint()
       ..color = Colors.white.withValues(alpha: 0.8)
@@ -94,6 +95,7 @@ class MiniMapComponent extends PositionComponent
       viewPaint,
     );
 
+    // 4. Vẽ vị trí Hero (Chấm màu xanh)
     final heroX = game.hero.position.x * scaleX;
     final heroY = game.hero.position.y * scaleY;
     canvas.drawCircle(
@@ -102,6 +104,7 @@ class MiniMapComponent extends PositionComponent
       Paint()..color = Colors.greenAccent,
     );
 
+    // 5. Viền ngoài MiniMap
     canvas.drawRect(
       Rect.fromLTWH(0, 0, miniMapSize, miniMapSize),
       Paint()

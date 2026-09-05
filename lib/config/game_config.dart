@@ -4,21 +4,28 @@ class GameConfig {
   static const double tileSize = 64.0;
   static const double defaultZoom = 1.2;
 
-  /// Tính chiều cao HUD bằng 2/5 (40%) chiều cao màn hình
+  /// Tính chiều cao HUD bằng 30% chiều cao màn hình[span_0](start_span)[span_0](end_span)
   static double getBottomHudHeight(double screenHeight) {
     return screenHeight * 0.3;
   }
+
+  // Safety Padding để tránh góc màn hình bo cong
+  static const double hudHorizontalPadding = 24.0;
 
   // MiniMap Config
   static const double miniMapMargin = 8.0;
   static const double miniMapBorderWidth = 1.5;
   static const double miniMapHeroRadius = 3.0;
 
+  // Joystick Config
+  static const double joystickRadius = 45.0;
+  static const double joystickKnobRadius = 20.0;
+
   // Colors
   static const Color hudBgColor = Color(0xFF1E1E1E);
   static const Color heroColor = Colors.lightBlueAccent;
 
-  // Hero Stats & Dota Mechanics
+  // Hero Stats & Dota Mechanics[span_1](start_span)[span_1](end_span)
   static const double heroRadius = 20.0;
   static const double heroMoveSpeed = 180.0;
   static const double heroTurnRate = 14.0;

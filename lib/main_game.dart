@@ -1,6 +1,7 @@
 import 'dart:math';
 
 import 'package:a_star_algorithm/a_star_algorithm.dart';
+import 'package:flame/components.dart';
 import 'package:flame/events.dart';
 import 'package:flame/experimental.dart';
 import 'package:flame/game.dart';
@@ -63,12 +64,14 @@ class NonoCombat extends FlameGame with PointerMoveCallbacks, TapCallbacks {
     );
     world.add(hero);
 
-    camera.follow(hero);
+    // Ép Viewfinder luôn xoay quanh tâm hiển thị
+    camera.viewfinder.anchor = Anchor.center;
     camera.viewfinder.zoom = GameConfig.defaultZoom;
 
     _setupCameraViewportAndBounds();
 
-    // Khởi tạo HUD với 2/5 chiều cao màn hình
+    camera.follow(hero);
+
     final hudHeight = GameConfig.getBottomHudHeight(canvasSize.y);
     camera.viewport.add(BottomHudComponent(hudHeight: hudHeight));
   }
@@ -77,25 +80,50 @@ class NonoCombat extends FlameGame with PointerMoveCallbacks, TapCallbacks {
     if (!isLoaded && !mapComponent.isLoaded) return;
 
     final gameSize = canvasSize;
-    final hudHeight = GameConfig.getBottomHudHeight(gameSize.y);
 
-    // Cập nhật Viewport dành cho phần màn hình chơi game (3/5 còn lại ở phía trên)
-    camera.viewport.size = Vector2(gameSize.x, gameSize.y - hudHeight);
+    // 1. Viewport chiếm trọn toàn bộ màn hình (Fullscreen)
+    camera.viewport.size = gameSize;
 
     final mapWidth = mapComponent.width;
     final mapHeight = mapComponent.height;
 
-    final halfViewport =
-        camera.viewport.virtualSize / (2 * GameConfig.defaultZoom);
+    // 2. Kích thước tầm nhìn thực tế toàn màn hình (đã tính Zoom)
+    final visibleRect = camera.visibleWorldRect;
+    final halfWidth = visibleRect.width / 2;
+    final halfHeight = visibleRect.height / 2;
 
+    // 3. Khóa biên Camera cho toàn màn hình
     camera.setBounds(
       Rectangle.fromLTWH(
-        halfViewport.x,
-        halfViewport.y,
-        max(0.0, mapWidth - (halfViewport.x * 2)),
-        max(0.0, mapHeight - (halfViewport.y * 2)),
+        halfWidth,
+        halfHeight,
+        max(0.0, mapWidth - visibleRect.width),
+        max(0.0, mapHeight - visibleRect.height),
       ),
     );
+  }
+
+  /// Hàm di chuyển Camera tuyệt đối an toàn (Dùng cho MiniMap)
+  void moveCameraTo(Vector2 targetWorldPos) {
+    camera.stop();
+
+    final mapWidth = mapComponent.width;
+    final mapHeight = mapComponent.height;
+
+    final visibleRect = camera.visibleWorldRect;
+    final halfWidth = visibleRect.width / 2;
+    final halfHeight = visibleRect.height / 2;
+
+    // Giới hạn tâm Camera không vượt quá bán kính tầm nhìn tới mép map
+    final minX = halfWidth;
+    final maxX = max(minX, mapWidth - halfWidth);
+    final minY = halfHeight;
+    final maxY = max(minY, mapHeight - halfHeight);
+
+    final clampedX = targetWorldPos.x.clamp(minX, maxX);
+    final clampedY = targetWorldPos.y.clamp(minY, maxY);
+
+    camera.viewfinder.position = Vector2(clampedX, clampedY);
   }
 
   @override
@@ -131,6 +159,18 @@ class NonoCombat extends FlameGame with PointerMoveCallbacks, TapCallbacks {
   void update(double dt) {
     super.update(dt);
     currentTick++;
+
+    // Lấy Joystick từ BottomHudComponent
+    final hud = camera.viewport.children
+        .whereType<BottomHudComponent>()
+        .firstOrNull;
+    if (hud != null) {
+      final joystick = hud.joystick;
+      if (!joystick.delta.isZero()) {
+        camera.follow(hero);
+        hero.moveWithJoystick(joystick.relativeDelta, dt);
+      }
+    }
   }
 
   @override
@@ -248,7 +288,6 @@ class NonoCombat extends FlameGame with PointerMoveCallbacks, TapCallbacks {
         );
       }).toList();
 
-      // Tạo GameCommand chuẩn bị sẵn sàng cho Replay[span_8](start_span)[span_8](end_span)
       final cmd = GameCommand(
         tick: currentTick,
         unitId: 'hero_1',
@@ -257,7 +296,6 @@ class NonoCombat extends FlameGame with PointerMoveCallbacks, TapCallbacks {
         targetY: worldTap.y,
       );
 
-      // Gửi nguyên chuỗi đường đi cho AnimeHero xử lý mượt mà[span_9](start_span)[span_9](end_span)
       hero.moveAlongPath(pathPoints, cmd);
     }
   }

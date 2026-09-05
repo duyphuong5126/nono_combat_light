@@ -7,14 +7,16 @@ import 'package:flame/experimental.dart';
 import 'package:flame/game.dart';
 import 'package:flame_tiled/flame_tiled.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart' hide PointerMoveEvent;
 import 'package:nono_combat_light/replay_system.dart';
 
 import 'components/anime_hero.dart';
 import 'components/bottom_hud.dart';
+import 'components/dummy_target.dart';
 import 'config/game_config.dart';
 import 'models/game_command.dart';
 
-/// Hàm chạy thuật toán A* trong Isolate/Luồng phụ để tránh giật lag UI
+/// Top-level function phục vụ A* Pathfinding trên Isolate
 Iterable<(int, int)> _calculatePathInBackground(Map<String, dynamic> params) {
   final int rows = params['rows'];
   final int columns = params['columns'];
@@ -33,11 +35,12 @@ Iterable<(int, int)> _calculatePathInBackground(Map<String, dynamic> params) {
   return aStar.findThePath();
 }
 
-/// Core Game Loop chính xử lý Map, Input, Pathfinding & Camera
+/// Core Game Loop
 class NonoCombat extends FlameGame
     with PointerMoveCallbacks, TapCallbacks, SecondaryTapCallbacks {
   late TiledComponent mapComponent;
   late AnimeHero hero;
+  late DummyTarget dummy; // --- MỚI: Entity Bao cát thử nghiệm ---
   final ReplayManager replayManager = ReplayManager();
 
   Set<(int, int)> barrierSet = {};
@@ -48,13 +51,18 @@ class NonoCombat extends FlameGame
   Vector2? lastPointerPosition;
   (int, int)? _lastTargetTile;
 
-  int currentTick = 0; // Đếm số Tick logic của Game
+  int currentTick = 0;
+
+  // Thêm biến quản lý Shake vào NonoCombat
+  double _shakeDuration = 0.0;
+  double _shakeIntensity = 0.0;
+  final Random _random = Random();
 
   @override
   Future<void> onLoad() async {
     super.onLoad();
 
-    // 1. Load TileMap
+    // 1. Tải Map
     mapComponent = await TiledComponent.load(
       'map.tmx',
       Vector2.all(GameConfig.tileSize),
@@ -62,7 +70,7 @@ class NonoCombat extends FlameGame
     );
     world.add(mapComponent);
 
-    // 2. Tạo bản đồ vật cản từ Layer 'Obstacles'
+    // 2. Tạo bản đồ vật cản
     _buildBarrierGrid();
 
     // 3. Tạo Hero
@@ -72,19 +80,33 @@ class NonoCombat extends FlameGame
     );
     world.add(hero);
 
-    // 4. Cấu hình Camera
+    // 4. --- MỚI: Khởi tạo Target Dummy ở khu vực ô (6, 4) ---
+    dummy = DummyTarget(
+      radius: 18.0,
+      position: Vector2(GameConfig.tileSize * 6.5, GameConfig.tileSize * 4.5),
+    );
+    world.add(dummy);
+
+    // 5. Cấu hình Camera
     camera.viewfinder.anchor = Anchor.center;
     camera.viewfinder.zoom = GameConfig.defaultZoom;
 
     _setupCameraViewportAndBounds();
     camera.follow(hero);
 
-    // 5. Thêm HUD vào Viewport
+    // 6. Thêm HUD Overlay
+    // Trong main_game.dart
     final hudHeight = GameConfig.getBottomHudHeight(canvasSize.y);
-    camera.viewport.add(BottomHudComponent(hudHeight: hudHeight));
+    // Lấy padding viền màn hình (hoặc mặc định 20.0 cho màn hình bo cong)
+    final safeLeft = MediaQuery.of(buildContext!).padding.left;
+
+    final hud = BottomHudComponent(
+      hudHeight: hudHeight,
+      safeAreaLeft: safeLeft > 0 ? safeLeft : 20.0,
+    );
+    camera.viewport.add(hud);
   }
 
-  /// Cài đặt giới hạn Camera không nhảy ra khỏi rìa Map
   void _setupCameraViewportAndBounds() {
     if (!isLoaded && !mapComponent.isLoaded) return;
 
@@ -107,9 +129,8 @@ class NonoCombat extends FlameGame
     );
   }
 
-  /// Dịch chuyển Camera tới tọa độ thế giới (Dùng khi tap MiniMap)
   void moveCameraTo(Vector2 targetWorldPos) {
-    camera.stop(); // Tạm dừng camera follow Hero
+    camera.stop();
 
     final mapWidth = mapComponent.width;
     final mapHeight = mapComponent.height;
@@ -137,7 +158,6 @@ class NonoCombat extends FlameGame
     }
   }
 
-  /// Duyệt Layer 'Obstacles' để lấy tập hợp các ô cản
   void _buildBarrierGrid() {
     final tileMap = mapComponent.tileMap;
     final mapWidth = tileMap.map.width;
@@ -159,12 +179,26 @@ class NonoCombat extends FlameGame
     barrierList = barrierSet.toList();
   }
 
+  /// Hàm kích hoạt rung Camera
+  void triggerCameraShake({double duration = 0.15, double intensity = 4.0}) {
+    _shakeDuration = duration;
+    _shakeIntensity = intensity;
+  }
+
   @override
   void update(double dt) {
     super.update(dt);
-    currentTick++; // Tăng đếm Game Tick
+    currentTick++;
 
-    // Xử lý di chuyển bằng Joystick
+    // Xử lý hiệu ứng Shake Camera
+    if (_shakeDuration > 0) {
+      _shakeDuration -= dt;
+      final offsetX = (_random.nextDouble() * 2 - 1) * _shakeIntensity;
+      final offsetY = (_random.nextDouble() * 2 - 1) * _shakeIntensity;
+      camera.viewfinder.position += Vector2(offsetX, offsetY);
+    }
+
+    // Logic Joystick giữ nguyên...
     final hud = camera.viewport.children
         .whereType<BottomHudComponent>()
         .firstOrNull;
@@ -177,9 +211,15 @@ class NonoCombat extends FlameGame
     }
   }
 
-  // --- THAO TÁC CẢM ỨNG / CHUỘT TRÁI ---
+  // --- TAP / CLICK HANDLERS ---
   @override
   void onTapDown(TapDownEvent event) {
+    // Nếu tap trúng vùng HUD ở dưới màn hình -> Bỏ qua logic tap bản đồ chính
+    final hudHeight = GameConfig.getBottomHudHeight(canvasSize.y);
+    if (event.canvasPosition.y >= canvasSize.y - hudHeight) {
+      return;
+    }
+
     isPointerDown = true;
     lastPointerPosition = event.canvasPosition;
     _handlePointerTarget(event.canvasPosition, forceUpdate: true);
@@ -191,7 +231,6 @@ class NonoCombat extends FlameGame
   @override
   void onTapCancel(TapCancelEvent event) => _stopHolding();
 
-  // --- THAO TÁC CHUỘT PHẢI (CHO DESKTOP: WINDOWS / MACOS / LINUX) ---
   @override
   void onSecondaryTapDown(SecondaryTapDownEvent event) {
     _handlePointerTarget(event.canvasPosition, forceUpdate: true);
@@ -210,10 +249,28 @@ class NonoCombat extends FlameGame
     _handlePointerTarget(event.canvasPosition);
   }
 
-  /// Tính toán tọa độ Tile khi nhấp màn hình
+  /// Xử lý phân loại Tap: Tấn công Dummy hay Di chuyển A*
   void _handlePointerTarget(Vector2 canvasPos, {bool forceUpdate = false}) {
     final worldTap = camera.globalToLocal(canvasPos);
 
+    // 1. --- MỚI: Kiểm tra xem vị trí Tap có trúng Hitbox của Dummy hay không ---
+    final distToDummy = (worldTap - dummy.position).length;
+    if (distToDummy <= dummy.radius + 12.0) {
+      final cmd = GameCommand(
+        tick: currentTick,
+        unitId: 'hero_1',
+        type: CommandType.attack,
+        targetX: dummy.position.x,
+        targetY: dummy.position.y,
+        targetEntityId: 'dummy_1',
+      );
+      replayManager.recordCommand(cmd);
+      camera.follow(hero);
+      hero.attackTarget(dummy);
+      return;
+    }
+
+    // 2. Nếu không tap trúng Dummy -> Tính đường di chuyển A*
     final realWidth = mapComponent.tileMap.map.width;
     final realHeight = mapComponent.tileMap.map.height;
 
@@ -234,7 +291,6 @@ class NonoCombat extends FlameGame
     }
   }
 
-  /// Gửi yêu cầu tính toán đường đi A*
   Future<void> _requestPathToPosition(Vector2 canvasPos) async {
     if (isCalculatingPath) return;
 
@@ -250,7 +306,7 @@ class NonoCombat extends FlameGame
     );
     final startY = (startPoint.y / GameConfig.tileSize).floor().clamp(
       0,
-      realHeight - 1,
+      realWidth - 1,
     );
 
     final rawEndX = (worldTap.x / GameConfig.tileSize).floor().clamp(
@@ -262,7 +318,6 @@ class NonoCombat extends FlameGame
       realHeight - 1,
     );
 
-    // Tự động tìm ô trống hợp lệ gần nhất nếu nhấp trúng vật cản
     final validTarget = _findNearestWalkableTile(
       (rawEndX, rawEndY),
       (startX, startY),
@@ -273,7 +328,6 @@ class NonoCombat extends FlameGame
 
     isCalculatingPath = true;
 
-    // Gọi thuật toán A* trên luồng phụ compute()
     final result = await compute(_calculatePathInBackground, {
       'rows': realHeight,
       'columns': realWidth,
@@ -294,7 +348,6 @@ class NonoCombat extends FlameGame
         );
       }).toList();
 
-      // Đóng gói Command phục vụ Replay
       final cmd = GameCommand(
         tick: currentTick,
         unitId: 'hero_1',
@@ -303,12 +356,11 @@ class NonoCombat extends FlameGame
         targetY: worldTap.y,
       );
 
-      replayManager.recordCommand(cmd); // Ghi lại log
+      replayManager.recordCommand(cmd);
       hero.moveAlongPath(pathPoints, cmd);
     }
   }
 
-  /// Thuật toán tìm ô đi được gần nhất dựa trên điểm số trọng số khoảng cách
   (int, int)? _findNearestWalkableTile(
     (int, int) target,
     (int, int) heroTile,

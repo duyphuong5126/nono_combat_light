@@ -1,13 +1,16 @@
+import 'dart:math';
+
 import 'package:a_star_algorithm/a_star_algorithm.dart';
-import 'package:flame/components.dart';
 import 'package:flame/events.dart';
 import 'package:flame/experimental.dart';
 import 'package:flame/game.dart';
 import 'package:flame_tiled/flame_tiled.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
 
-import 'game_config.dart';
+import 'components/anime_hero.dart';
+import 'components/bottom_hud.dart';
+import 'config/game_config.dart';
+import 'models/game_command.dart';
 
 Iterable<(int, int)> _calculatePathInBackground(Map<String, dynamic> params) {
   final int rows = params['rows'];
@@ -27,17 +30,19 @@ Iterable<(int, int)> _calculatePathInBackground(Map<String, dynamic> params) {
   return aStar.findThePath();
 }
 
-class DotaGame extends FlameGame with TapCallbacks {
+class NonoCombat extends FlameGame with PointerMoveCallbacks, TapCallbacks {
   late TiledComponent mapComponent;
-  late CircleComponent hero;
+  late AnimeHero hero;
 
   Set<(int, int)> barrierSet = {};
   List<(int, int)> barrierList = [];
-  List<Vector2> currentPath = [];
-  bool isCalculatingPath = false;
 
-  // Khai báo chiều cao của Thanh HUD phía dưới
-  static const double bottomHudHeight = 160.0;
+  bool isCalculatingPath = false;
+  bool isPointerDown = false;
+  Vector2? lastPointerPosition;
+  (int, int)? _lastTargetTile;
+
+  int currentTick = 0;
 
   @override
   Future<void> onLoad() async {
@@ -52,10 +57,8 @@ class DotaGame extends FlameGame with TapCallbacks {
 
     _buildBarrierGrid();
 
-    hero = CircleComponent(
+    hero = AnimeHero(
       radius: GameConfig.heroRadius,
-      paint: Paint()..color = Colors.blue,
-      anchor: Anchor.center,
       position: Vector2(GameConfig.tileSize * 1.5, GameConfig.tileSize * 1.5),
     );
     world.add(hero);
@@ -63,28 +66,34 @@ class DotaGame extends FlameGame with TapCallbacks {
     camera.follow(hero);
     camera.viewfinder.zoom = GameConfig.defaultZoom;
 
-    // 1. Giới hạn Viewport của Camera để không đè lên thanh HUD bên dưới
     _setupCameraViewportAndBounds();
 
-    // 2. Thêm Bottom HUD Panel chứa Mini Map vào Viewport
-    camera.viewport.add(BottomHudComponent(hudHeight: bottomHudHeight));
+    // Khởi tạo HUD với 2/5 chiều cao màn hình
+    final hudHeight = GameConfig.getBottomHudHeight(canvasSize.y);
+    camera.viewport.add(BottomHudComponent(hudHeight: hudHeight));
   }
 
   void _setupCameraViewportAndBounds() {
-    // Thu hẹp vùng hiển thị Camera theo chiều cao trừ đi thanh HUD
+    if (!isLoaded && !mapComponent.isLoaded) return;
+
     final gameSize = canvasSize;
-    camera.viewport.size = Vector2(gameSize.x, gameSize.y - bottomHudHeight);
+    final hudHeight = GameConfig.getBottomHudHeight(gameSize.y);
+
+    // Cập nhật Viewport dành cho phần màn hình chơi game (3/5 còn lại ở phía trên)
+    camera.viewport.size = Vector2(gameSize.x, gameSize.y - hudHeight);
 
     final mapWidth = mapComponent.width;
     final mapHeight = mapComponent.height;
-    final halfViewport = camera.viewport.virtualSize / (2 * GameConfig.defaultZoom);
+
+    final halfViewport =
+        camera.viewport.virtualSize / (2 * GameConfig.defaultZoom);
 
     camera.setBounds(
       Rectangle.fromLTWH(
         halfViewport.x,
         halfViewport.y,
-        mapWidth - (halfViewport.x * 2),
-        mapHeight - (halfViewport.y * 2),
+        max(0.0, mapWidth - (halfViewport.x * 2)),
+        max(0.0, mapHeight - (halfViewport.y * 2)),
       ),
     );
   }
@@ -119,31 +128,103 @@ class DotaGame extends FlameGame with TapCallbacks {
   }
 
   @override
-  Future<void> onTapDown(TapDownEvent event) async {
-    // Bỏ qua nếu chạm vào vùng Bottom HUD
-    if (event.canvasPosition.y >= canvasSize.y - bottomHudHeight) {
+  void update(double dt) {
+    super.update(dt);
+    currentTick++;
+  }
+
+  @override
+  void onTapDown(TapDownEvent event) {
+    final hudHeight = GameConfig.getBottomHudHeight(canvasSize.y);
+    if (event.canvasPosition.y >= canvasSize.y - hudHeight) {
       return;
     }
+    isPointerDown = true;
+    lastPointerPosition = event.canvasPosition;
+    _handlePointerTarget(event.canvasPosition, forceUpdate: true);
+  }
 
-    if (isCalculatingPath) return;
+  @override
+  void onTapUp(TapUpEvent event) => _stopHolding();
 
-    final worldTap = camera.globalToLocal(event.canvasPosition);
+  @override
+  void onTapCancel(TapCancelEvent event) => _stopHolding();
 
-    Vector2 startPoint = hero.position;
-    if (currentPath.isNotEmpty) {
-      startPoint = currentPath.first;
+  void _stopHolding() {
+    isPointerDown = false;
+    lastPointerPosition = null;
+    _lastTargetTile = null;
+  }
+
+  @override
+  void onPointerMove(PointerMoveEvent event) {
+    if (!isPointerDown) return;
+
+    final hudHeight = GameConfig.getBottomHudHeight(canvasSize.y);
+    if (event.canvasPosition.y >= canvasSize.y - hudHeight) {
+      return;
     }
+    lastPointerPosition = event.canvasPosition;
+    _handlePointerTarget(event.canvasPosition);
+  }
+
+  void _handlePointerTarget(Vector2 canvasPos, {bool forceUpdate = false}) {
+    final worldTap = camera.globalToLocal(canvasPos);
 
     final realWidth = mapComponent.tileMap.map.width;
     final realHeight = mapComponent.tileMap.map.height;
 
-    final startX = (startPoint.x / GameConfig.tileSize).floor().clamp(0, realWidth - 1);
-    final startY = (startPoint.y / GameConfig.tileSize).floor().clamp(0, realHeight - 1);
+    final targetX = (worldTap.x / GameConfig.tileSize).floor().clamp(
+      0,
+      realWidth - 1,
+    );
+    final targetY = (worldTap.y / GameConfig.tileSize).floor().clamp(
+      0,
+      realHeight - 1,
+    );
 
-    final endX = (worldTap.x / GameConfig.tileSize).floor().clamp(0, realWidth - 1);
-    final endY = (worldTap.y / GameConfig.tileSize).floor().clamp(0, realHeight - 1);
+    final currentTargetTile = (targetX, targetY);
 
-    if (barrierSet.contains((endX, endY))) return;
+    if (forceUpdate || _lastTargetTile != currentTargetTile) {
+      _lastTargetTile = currentTargetTile;
+      _requestPathToPosition(canvasPos);
+    }
+  }
+
+  Future<void> _requestPathToPosition(Vector2 canvasPos) async {
+    if (isCalculatingPath) return;
+
+    final worldTap = camera.globalToLocal(canvasPos);
+    Vector2 startPoint = hero.position;
+
+    final realWidth = mapComponent.tileMap.map.width;
+    final realHeight = mapComponent.tileMap.map.height;
+
+    final startX = (startPoint.x / GameConfig.tileSize).floor().clamp(
+      0,
+      realWidth - 1,
+    );
+    final startY = (startPoint.y / GameConfig.tileSize).floor().clamp(
+      0,
+      realHeight - 1,
+    );
+
+    final rawEndX = (worldTap.x / GameConfig.tileSize).floor().clamp(
+      0,
+      realWidth - 1,
+    );
+    final rawEndY = (worldTap.y / GameConfig.tileSize).floor().clamp(
+      0,
+      realHeight - 1,
+    );
+
+    final validTarget = _findNearestWalkableTile(
+      (rawEndX, rawEndY),
+      (startX, startY),
+      realWidth,
+      realHeight,
+    );
+    if (validTarget == null) return;
 
     isCalculatingPath = true;
 
@@ -151,139 +232,76 @@ class DotaGame extends FlameGame with TapCallbacks {
       'rows': realHeight,
       'columns': realWidth,
       'start': (startX, startY),
-      'end': (endX, endY),
+      'end': validTarget,
       'barriers': barrierList,
     });
 
     isCalculatingPath = false;
 
     if (result.isNotEmpty) {
-      currentPath = result.map((point) {
+      camera.follow(hero);
+
+      final pathPoints = result.map((point) {
         return Vector2(
           point.$1 * GameConfig.tileSize + (GameConfig.tileSize / 2),
           point.$2 * GameConfig.tileSize + (GameConfig.tileSize / 2),
         );
       }).toList();
+
+      // Tạo GameCommand chuẩn bị sẵn sàng cho Replay[span_8](start_span)[span_8](end_span)
+      final cmd = GameCommand(
+        tick: currentTick,
+        unitId: 'hero_1',
+        type: CommandType.move,
+        targetX: worldTap.x,
+        targetY: worldTap.y,
+      );
+
+      // Gửi nguyên chuỗi đường đi cho AnimeHero xử lý mượt mà[span_9](start_span)[span_9](end_span)
+      hero.moveAlongPath(pathPoints, cmd);
     }
   }
 
-  @override
-  void update(double dt) {
-    super.update(dt);
+  (int, int)? _findNearestWalkableTile(
+    (int, int) target,
+    (int, int) heroTile,
+    int maxCols,
+    int maxRows,
+  ) {
+    if (!barrierSet.contains(target)) return target;
 
-    if (currentPath.isNotEmpty) {
-      final target = currentPath.first;
-      final distance = target - hero.position;
+    (int, int)? bestTile;
+    double bestScore = double.infinity;
 
-      if (distance.length < 5) {
-        hero.position = target.clone();
-        currentPath.removeAt(0);
-      } else {
-        hero.position += distance.normalized() * (GameConfig.heroMoveSpeed * dt);
+    const double weightTarget = 1.5;
+    const double weightHero = 1.0;
+    const int searchRadius = 4;
+
+    for (int dx = -searchRadius; dx <= searchRadius; dx++) {
+      for (int dy = -searchRadius; dy <= searchRadius; dy++) {
+        final nx = target.$1 + dx;
+        final ny = target.$2 + dy;
+        final candidate = (nx, ny);
+
+        if (nx < 0 || nx >= maxCols || ny < 0 || ny >= maxRows) continue;
+        if (barrierSet.contains(candidate)) continue;
+
+        final distToTarget = sqrt(
+          pow(nx - target.$1, 2) + pow(ny - target.$2, 2),
+        );
+        final distToHero = sqrt(
+          pow(nx - heroTile.$1, 2) + pow(ny - heroTile.$2, 2),
+        );
+
+        final score = (distToTarget * weightTarget) + (distToHero * weightHero);
+
+        if (score < bestScore) {
+          bestScore = score;
+          bestTile = candidate;
+        }
       }
     }
-  }
-}
 
-// Component quản lý toàn bộ thanh HUD phía dưới
-class BottomHudComponent extends PositionComponent with HasGameReference<DotaGame> {
-  final double hudHeight;
-
-  BottomHudComponent({required this.hudHeight}) {
-    priority = 100;
-  }
-
-  @override
-  void onGameResize(Vector2 size) {
-    super.onGameResize(size);
-    // Cố định thanh HUD nằm ở đáy màn hình
-    position = Vector2(0, game.canvasSize.y - hudHeight);
-    this.size = Vector2(game.canvasSize.x, hudHeight);
-  }
-
-  @override
-  void onLoad() {
-    super.onLoad();
-    // Gắn Mini Map vào góc dưới bên trái của thanh HUD
-    add(MiniMapComponent(miniMapSize: hudHeight - 16));
-  }
-
-  @override
-  void render(Canvas canvas) {
-    super.render(canvas);
-    // Vẽ nền thanh HUD màu tối bên dưới
-    final hudBgPaint = Paint()..color = const Color(0xFF1E1E1E);
-    canvas.drawRect(Rect.fromLTWH(0, 0, size.x, size.y), hudBgPaint);
-
-    final borderPaint = Paint()
-      ..color = Colors.white24
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.0;
-    canvas.drawLine(Offset.zero, Offset(size.x, 0), borderPaint);
-  }
-}
-
-// Mini Map nằm gọn trong 1 ô vuông của HUD
-class MiniMapComponent extends PositionComponent with HasGameReference<DotaGame> {
-  final double miniMapSize;
-
-  MiniMapComponent({required this.miniMapSize}) {
-    // Đặt lề 8px so với khung HUD
-    position = Vector2(8, 8);
-    size = Vector2.all(miniMapSize);
-  }
-
-  @override
-  void render(Canvas canvas) {
-    super.render(canvas);
-
-    final mapWidth = game.mapComponent.width;
-    final mapHeight = game.mapComponent.height;
-
-    if (mapWidth == 0 || mapHeight == 0) return;
-
-    final scaleX = miniMapSize / mapWidth;
-    final scaleY = miniMapSize / mapHeight;
-
-    // 1. Nền Mini Map
-    final bgPaint = Paint()..color = Colors.black;
-    canvas.drawRect(Rect.fromLTWH(0, 0, miniMapSize, miniMapSize), bgPaint);
-
-    // 2. Vật cản
-    final barrierPaint = Paint()..color = Colors.grey.withValues(alpha: 0.8);
-    for (final barrier in game.barrierSet) {
-      final bx = barrier.$1 * GameConfig.tileSize * scaleX;
-      final by = barrier.$2 * GameConfig.tileSize * scaleY;
-      final bw = GameConfig.tileSize * scaleX;
-      final bh = GameConfig.tileSize * scaleY;
-      canvas.drawRect(Rect.fromLTWH(bx, by, bw, bh), barrierPaint);
-    }
-
-    // 3. Khung Camera Viewport
-    final cameraRect = game.camera.visibleWorldRect;
-    final camX = cameraRect.left * scaleX;
-    final camY = cameraRect.top * scaleY;
-    final camW = cameraRect.width * scaleX;
-    final camH = cameraRect.height * scaleY;
-
-    final viewPaint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.8)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.5;
-    canvas.drawRect(Rect.fromLTWH(camX, camY, camW, camH), viewPaint);
-
-    // 4. Vị trí Hero
-    final heroX = game.hero.position.x * scaleX;
-    final heroY = game.hero.position.y * scaleY;
-
-    final heroPaint = Paint()..color = Colors.greenAccent;
-    canvas.drawCircle(Offset(heroX, heroY), 3.0, heroPaint);
-
-    // 5. Viền Mini Map
-    final borderPaint = Paint()
-      ..color = Colors.amber
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.5;
-    canvas.drawRect(Rect.fromLTWH(0, 0, miniMapSize, miniMapSize), borderPaint);
+    return bestTile;
   }
 }

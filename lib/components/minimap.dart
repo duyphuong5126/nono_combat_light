@@ -4,6 +4,8 @@ import 'package:flutter/material.dart' hide PointerMoveEvent;
 
 import '../config/game_config.dart';
 import '../main_game.dart';
+import '../managers/unit_registry.dart';
+import 'dummy_target.dart';
 
 /// Component MiniMap hỗ trợ Render thu nhỏ bản đồ và Kéo/Tap di chuyển Camera
 class MiniMapComponent extends PositionComponent
@@ -95,14 +97,30 @@ class MiniMapComponent extends PositionComponent
       viewPaint,
     );
 
-    // 4. Vẽ vị trí Hero (Chấm màu xanh)
-    final heroX = game.hero.position.x * scaleX;
-    final heroY = game.hero.position.y * scaleY;
-    canvas.drawCircle(
-      Offset(heroX, heroY),
-      GameConfig.miniMapHeroRadius,
-      Paint()..color = Colors.greenAccent,
-    );
+    // 4. Vẽ các Entity động từ UnitRegistry (Tránh tình trạng Entity đã chết vẫn bị render)
+    final activeUnits = UnitRegistry().getAllUnits();
+    for (final unit in activeUnits) {
+      if (!unit.isMounted) continue; // Bỏ qua nếu đã bị remove khỏi world
+
+      final miniX = unit.position.x * scaleX;
+      final miniY = unit.position.y * scaleY;
+
+      if (unit == game.hero) {
+        // Chấm xanh lá cho Hero
+        canvas.drawCircle(
+          Offset(miniX, miniY),
+          GameConfig.miniMapHeroRadius,
+          Paint()..color = Colors.greenAccent,
+        );
+      } else if (unit is DummyTarget && !unit.isDead) {
+        // Chấm đỏ cho Kẻ địch/Dummy (Chỉ vẽ khi chưa chết)
+        canvas.drawCircle(
+          Offset(miniX, miniY),
+          3.0,
+          Paint()..color = Colors.redAccent,
+        );
+      }
+    }
 
     // 5. Viền ngoài MiniMap
     canvas.drawRect(

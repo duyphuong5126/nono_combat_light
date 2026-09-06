@@ -6,8 +6,10 @@ import 'package:flutter/material.dart';
 import '../config/game_config.dart';
 import '../enums/hero_state.dart';
 import '../main_game.dart';
+import '../managers/unit_registry.dart';
 import '../models/game_command.dart';
 import 'dummy_target.dart';
+import 'floating_text.dart';
 import 'projectile.dart';
 
 /// Entity Hero xử lý Render, Di chuyển, Va chạm, FSM, Combat và Skill
@@ -20,6 +22,16 @@ class AnimeHero extends PositionComponent with HasGameReference<NonoCombat> {
   GameCommand? currentCommand;
   List<Vector2> pathQueue = [];
   Vector2? currentTargetPoint;
+
+  // --- THUỘC TÍNH COMBAT & CHỈ SỐ (DOTA 1 MECHANICS) ---
+  double maxHp = 600.0;
+  double currentHp = 600.0;
+  double maxMp = 300.0;
+  double currentMp = 300.0;
+  double baseArmor = 3.0;
+  double attackDamage = 55.0;
+
+  bool get isDead => currentState == HeroState.dead || currentHp <= 0;
 
   // --- QUẢN LÝ TẤN CÔNG (AUTO ATTACK) ---
   DummyTarget? targetEnemy;
@@ -41,8 +53,8 @@ class AnimeHero extends PositionComponent with HasGameReference<NonoCombat> {
       );
 
   /// Lệnh dừng mọi hành động (Di chuyển, Đánh thường, Gồng chiêu -> Animation Cancel)
-  /// LƯU Ý: Đây là hàm custom của game, KHÔNG CÓ @override
   void stopMoving() {
+    if (isDead) return;
     pathQueue.clear();
     currentTargetPoint = null;
     targetEnemy = null;
@@ -55,6 +67,7 @@ class AnimeHero extends PositionComponent with HasGameReference<NonoCombat> {
 
   /// Lệnh Tấn công mục tiêu
   void attackTarget(DummyTarget target) {
+    if (isDead || target.isDead) return;
     stopMoving();
     targetEnemy = target;
     currentState = HeroState.attack;
@@ -62,7 +75,7 @@ class AnimeHero extends PositionComponent with HasGameReference<NonoCombat> {
 
   /// Lệnh Kích hoạt Kỹ năng (Skillshot)
   void castSkill(Vector2 targetPos) {
-    if (currentCooldown > 0) return; // Đang Cooldown
+    if (isDead || currentCooldown > 0) return; // Đang Cooldown hoặc đã chết
 
     stopMoving();
     skillTargetPoint = targetPos;
@@ -82,9 +95,44 @@ class AnimeHero extends PositionComponent with HasGameReference<NonoCombat> {
     game.world.add(projectile);
   }
 
+  /// Nhận sát thương và giảm trừ bởi Armor
+  void takeDamage(double rawDamage) {
+    if (isDead) return;
+
+    // Công thức tính giảm sát thương chuẩn Dota 1
+    double actualDamage;
+    if (baseArmor >= 0) {
+      final damageReduction = (0.06 * baseArmor) / (1 + 0.06 * baseArmor);
+      actualDamage = rawDamage * (1 - damageReduction);
+    } else {
+      final damageIncrease = 1 - pow(0.94, -baseArmor).toDouble();
+      actualDamage = rawDamage * (1 + damageIncrease);
+    }
+
+    currentHp = (currentHp - actualDamage).clamp(0.0, maxHp);
+
+    // Hiển thị Floating Damage Text
+    final damageText = FloatingDamageText(
+      text: '-${actualDamage.toInt()}',
+      position: position + Vector2(0, -radius - 20),
+    );
+    game.world.add(damageText);
+
+    if (currentHp <= 0) {
+      _onDeath();
+    }
+  }
+
+  void _onDeath() {
+    currentState = HeroState.dead;
+    stopMoving();
+    UnitRegistry().unregisterUnit('hero_1');
+    removeFromParent();
+  }
+
   /// Di chuyển bằng Joystick có xử lý trượt vật cản (Slide Collision)
   void moveWithJoystick(Vector2 direction, double dt) {
-    if (direction.isZero()) return;
+    if (isDead || direction.isZero()) return;
 
     // Hủy các hành động cũ khi dùng Joystick
     if (currentState != HeroState.move || pathQueue.isNotEmpty) {
@@ -148,6 +196,7 @@ class AnimeHero extends PositionComponent with HasGameReference<NonoCombat> {
 
   /// Nhận chuỗi đường đi từ A*
   void moveAlongPath(List<Vector2> path, GameCommand command) {
+    if (isDead) return;
     stopMoving();
     currentCommand = command;
     pathQueue = List.from(path);
@@ -160,6 +209,7 @@ class AnimeHero extends PositionComponent with HasGameReference<NonoCombat> {
   @override
   void update(double dt) {
     super.update(dt);
+    if (isDead) return;
 
     // Cập nhật Cooldown Skill
     if (currentCooldown > 0) {
@@ -221,9 +271,10 @@ class AnimeHero extends PositionComponent with HasGameReference<NonoCombat> {
     }
   }
 
-  /// Logic Đánh thường chuẩn Dota (Kiểm tra va chạm để không lấn ô tường)
+  /// Logic Đánh thường chuẩn Dota
   void _handleAttackState(double dt) {
-    if (targetEnemy == null) {
+    if (targetEnemy == null || targetEnemy!.isDead) {
+      targetEnemy = null;
       currentState = HeroState.idle;
       return;
     }
@@ -231,7 +282,7 @@ class AnimeHero extends PositionComponent with HasGameReference<NonoCombat> {
     final distanceVector = targetEnemy!.position - position;
     final distance = distanceVector.length;
 
-    // 1. Tự động di chuyển vào tầm đánh nếu chưa đủ gần (Có check va chạm)
+    // 1. Tự động di chuyển vào tầm đánh nếu chưa đủ gần
     if (distance > GameConfig.attackRange) {
       targetAngle = atan2(distanceVector.y, distanceVector.x);
       _updateRotation(targetAngle, dt);
@@ -265,7 +316,7 @@ class AnimeHero extends PositionComponent with HasGameReference<NonoCombat> {
     if (attackTimer >= GameConfig.attackPoint &&
         !hasDealtDamageInCurrentAttack) {
       hasDealtDamageInCurrentAttack = true;
-      targetEnemy!.takeDamage(50.0);
+      targetEnemy!.takeDamage(attackDamage);
     }
 
     final totalAttackCycle = GameConfig.attackPoint + GameConfig.backswing;
@@ -365,5 +416,34 @@ class AnimeHero extends PositionComponent with HasGameReference<NonoCombat> {
         swingPaint,
       );
     }
+
+    // --- RENDER HP & MP BAR TRÊN ĐẦU HERO ---
+    final barWidth = size.x * 1.3;
+    const barHeight = 5.0;
+    final barLeft = (size.x - barWidth) / 2;
+    const hpTop = -16.0;
+    const mpTop = -10.0;
+
+    // HP Background & Green Bar
+    canvas.drawRect(
+      Rect.fromLTWH(barLeft, hpTop, barWidth, barHeight),
+      Paint()..color = Colors.black87,
+    );
+    final hpPercent = (currentHp / maxHp).clamp(0.0, 1.0);
+    canvas.drawRect(
+      Rect.fromLTWH(barLeft, hpTop, barWidth * hpPercent, barHeight),
+      Paint()..color = Colors.greenAccent,
+    );
+
+    // MP Background & Blue Bar
+    canvas.drawRect(
+      Rect.fromLTWH(barLeft, mpTop, barWidth, barHeight - 1),
+      Paint()..color = Colors.black87,
+    );
+    final mpPercent = (currentMp / maxMp).clamp(0.0, 1.0);
+    canvas.drawRect(
+      Rect.fromLTWH(barLeft, mpTop, barWidth * mpPercent, barHeight - 1),
+      Paint()..color = Colors.lightBlueAccent,
+    );
   }
 }

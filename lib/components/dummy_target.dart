@@ -1,12 +1,19 @@
+import 'dart:math';
+
 import 'package:flame/components.dart';
 import 'package:flutter/material.dart';
-import 'floating_text.dart';
+
 import '../main_game.dart';
+import '../managers/unit_registry.dart';
+import 'floating_text.dart';
 
 class DummyTarget extends PositionComponent with HasGameReference<NonoCombat> {
   final double radius;
   double maxHp = 500.0;
   double currentHp = 500.0;
+  double armor = 2.0;
+
+  bool get isDead => currentHp <= 0;
 
   // Biến phục vụ Hit Flash
   double hitFlashTimer = 0.0;
@@ -18,25 +25,37 @@ class DummyTarget extends PositionComponent with HasGameReference<NonoCombat> {
         anchor: Anchor.center,
       );
 
-  void takeDamage(double amount) {
-    currentHp = (currentHp - amount).clamp(0.0, maxHp);
+  void takeDamage(double rawDamage) {
+    if (isDead) return;
+
+    // Công thức tính giảm trừ sát thương theo Armor chuẩn Dota 1
+    double actualDamage;
+    if (armor >= 0) {
+      final damageReduction = (0.06 * armor) / (1 + 0.06 * armor);
+      actualDamage = rawDamage * (1 - damageReduction);
+    } else {
+      final damageIncrease = 1 - pow(0.94, -armor).toDouble();
+      actualDamage = rawDamage * (1 + damageIncrease);
+    }
+
+    currentHp = (currentHp - actualDamage).clamp(0.0, maxHp);
     hitFlashTimer = 0.1; // Bật Flash trắng trong 0.1s
 
     // 1. Tạo Floating Damage Text
     final damageText = FloatingDamageText(
-      text: '-${amount.toInt()}',
+      text: '-${actualDamage.toInt()}',
       position: position + Vector2(0, -radius - 15),
     );
     game.world.add(damageText);
 
-    /*// 2. Trigger Camera Shake
-    game.triggerCameraShake(duration: 0.12, intensity: 3.5);*/
-
-    if (currentHp <= 0) {
-      Future.delayed(const Duration(seconds: 1), () {
-        currentHp = maxHp;
-      });
+    if (isDead) {
+      _onDeath();
     }
+  }
+
+  void _onDeath() {
+    UnitRegistry().unregisterUnit('dummy_1');
+    removeFromParent();
   }
 
   @override
@@ -76,7 +95,7 @@ class DummyTarget extends PositionComponent with HasGameReference<NonoCombat> {
       Paint()..color = Colors.black87,
     );
 
-    final hpPercent = currentHp / maxHp;
+    final hpPercent = (currentHp / maxHp).clamp(0.0, 1.0);
     canvas.drawRect(
       Rect.fromLTWH(hpBarLeft, hpBarTop, hpBarWidth * hpPercent, hpBarHeight),
       Paint()..color = Colors.greenAccent,

@@ -4,7 +4,7 @@ class GameConfig {
   static const double tileSize = 64.0;
   static const double defaultZoom = 1.2;
 
-  /// Tính chiều cao HUD bằng 30% chiều cao màn hình[span_0](start_span)[span_0](end_span)
+  /// Tính chiều cao HUD bằng 30% chiều cao màn hình
   static double getBottomHudHeight(double screenHeight) {
     return screenHeight * 0.3;
   }
@@ -25,7 +25,7 @@ class GameConfig {
   static const Color hudBgColor = Color(0xFF1E1E1E);
   static const Color heroColor = Colors.lightBlueAccent;
 
-  // Hero Stats & Dota Mechanics[span_1](start_span)[span_1](end_span)
+  // Hero Stats & Dota Mechanics
   static const double heroRadius = 20.0;
   static const double heroMoveSpeed = 180.0;
   static const double heroTurnRate = 14.0;

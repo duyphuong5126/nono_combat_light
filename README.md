@@ -107,3 +107,53 @@ bắt được chuyển động.
 [ ] 3. Combat Mechanics: Cài đặt hệ thống gây sát thương, Animation Attack
 Point / Backswing cancel.
 ================================================================================
+---
+
+## 🏗️ Kiến Trúc Hệ Thống (Dài Hạn)
+
+### 1. Data-Driven Design (Kiến Trúc Dựa Trên Dữ Liệu)
+- **Zero-Code Update:** Toàn bộ thông số Hero, Quái (Creeps), Công trình (Towers), Phương tiện (Vehicles) và Vật phẩm (Items) được quản lý tách biệt qua các file Data Resources (JSON).
+- **Remote Asset Loading:** Hỗ trợ tải dữ liệu cấu hình trực tiếp từ Server/CDN mà không cần phát hành lại bản cập nhật ứng dụng (App Store/Play Store).
+
+### 2. Map Configuration
+- **Map Templates:** Đặt cấu trúc bản đồ (Terrain, Barriers, Creep Spawns, Tower Positions) vào các file cấu hình Data Map.
+- **2-Faction Standard:** Mọi bản đồ đều tuân theo cấu trúc đấu phe (Radiant / Dire hoặc Red / Blue).
+
+### 3. Tách Biệt Vũ Khí & Hero (Weapon & Attack Effect System)
+- **Weapon System:** Vũ khí được tách ra thành đối tượng riêng, định nghĩa các thuộc tính: Sát thương gốc, Tầm đánh (Range), Kiểu tấn công (Melee/Ranged), Tốc độ đạn bay (Projectile Speed).
+- **Attack Modifiers:** Hỗ trợ các hiệu ứng tấn công (Desolator - Trừ giáp, Eye of Skadi - Làm chậm, Chain Lightning...).
+- **Weapon Binding:**
+  - *Mặc định theo Map:* Mỗi Map có thể gán sẵn Vũ khí mặc định riêng cho Hero.
+  - *Vật phẩm trang bị:* Hero có thể mua/thay đổi vũ khí từ Shop trong trận đấu.
+
+---
+
+## 📝 Bảng Công Việc (TODO List)
+
+### 📋 Phase 1: Core Combat & World UI (Đang Triển Khai)
+- [ ] Implement Hệ thống Sát thương & Tính toán Giáp (Damage Engine).
+- [ ] Thêm Hiệu ứng Số Sát Thương Bay (Floating Damage Text).
+- [ ] Thêm Thanh Máu & Năng Lượng trên đầu Đơn vị (World-Space Floating Healthbars).
+- [ ] Tự động Khóa Mục Tiêu & Đánh Thường (Auto-Target & Auto-Attack Loop).
+
+### 📄 Phase 2: Data Architecture & Asset Decoupling
+- [ ] **JSON Data Models:**
+  - [ ] Thiết kế Schema & Parser cho `HeroData` (Stats, Growth, Base Speed).
+  - [ ] Thiết kế Schema & Parser cho `WeaponData` (Base Damage, Attack Range, Projectile Asset, Modifiers).
+  - [ ] Thiết kế Schema & Parser cho `MapConfigData` (Dimensions, Barrier Grid, Faction Spawns).
+- [ ] **Resource Loader Manager:**
+  - [ ] Xây dựng bộ quản lý nạp tài nguyên từ file JSON nội bộ (Assets folder).
+  - [ ] Chuẩn bị cơ chế nạp Data từ Remote URL/CDN (OTA Updates).
+- [ ] **Weapon-Hero Refactoring:** Tách logic tấn công hiện tại của Hero ra `WeaponComponent` / `WeaponModel`.
+
+### 🗺️ Phase 3: Maps, Factions & Entity Types
+- [ ] Tách biệt Đơn vị thành các Type: `Hero`, `Creep`, `Building`, `Vehicle`.
+- [ ] Đọc cấu hình Bản đồ từ file JSON/TMX để tự động vẽ Barrier & Vị trí công trình.
+- [ ] Thiết lập hệ thống 2 Phe (Faction System: Player, Ally, Enemy, Neutral).
+
+---
+
+## 🕹️ HUD Controls & Replay
+- Bottom HUD linh hoạt, hỗ trợ Safe Area bo tròn màn hình.
+- Replay Manager ghi chép chính xác Command theo Tick.
+

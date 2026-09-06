@@ -3,8 +3,20 @@ import '../models/game_command.dart';
 
 /// Lớp quản lý ghi log và phát lại trận đấu (Replay Engine)
 class ReplayManager {
-  final List<GameCommand> recordedCommands = []; // Danh sách các lệnh đã thu
-  bool isReplayMode = false; // Cờ đánh dấu trạng thái phát lại
+  final List<GameCommand> recordedCommands = [];
+  bool isReplayMode = false;
+
+  // Metadata bắt buộc để Replay chính xác
+  int initialSeed = 0;
+  List<String> selectedHeroes = [];
+
+  /// Khởi tạo một phiên ghi Replay mới
+  void startNewSession({required int seed, required List<String> heroes}) {
+    recordedCommands.clear();
+    isReplayMode = false;
+    initialSeed = seed;
+    selectedHeroes = heroes;
+  }
 
   /// Ghi lại lệnh nếu đang trong trận đấu thực
   void recordCommand(GameCommand cmd) {
@@ -13,16 +25,27 @@ class ReplayManager {
     }
   }
 
-  /// Xuất toàn bộ dữ liệu trận đấu ra chuỗi JSON
+  /// Xuất toàn bộ dữ liệu trận đấu bao gồm Header + Commands ra JSON
   String exportReplayJson() {
-    return jsonEncode(recordedCommands.map((e) => e.toJson()).toList());
+    final Map<String, dynamic> fullData = {
+      'seed': initialSeed,
+      'heroes': selectedHeroes,
+      'commands': recordedCommands.map((e) => e.toJson()).toList(),
+    };
+    return jsonEncode(fullData);
   }
 
-  /// Nạp chuỗi JSON Replay để chuẩn bị phát lại
+  /// Nạp chuỗi JSON Replay và khôi phục trạng thái ban đầu
   void loadReplayJson(String jsonStr) {
     recordedCommands.clear();
-    final List<dynamic> list = jsonDecode(jsonStr);
-    recordedCommands.addAll(list.map((e) => GameCommand.fromJson(e)));
+    final Map<String, dynamic> data = jsonDecode(jsonStr);
+
+    initialSeed = data['seed'] as int;
+    selectedHeroes = List<String>.from(data['heroes']);
+
+    final List<dynamic> cmdList = data['commands'];
+    recordedCommands.addAll(cmdList.map((e) => GameCommand.fromJson(e)));
+
     isReplayMode = true;
   }
 }

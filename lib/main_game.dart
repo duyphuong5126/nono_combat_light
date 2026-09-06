@@ -14,9 +14,9 @@ import 'components/anime_hero.dart';
 import 'components/bottom_hud.dart';
 import 'components/dummy_target.dart';
 import 'config/game_config.dart';
+import 'managers/unit_registry.dart';
 import 'models/game_command.dart';
 
-/// Top-level function phục vụ A* Pathfinding trên Isolate
 Iterable<(int, int)> _calculatePathInBackground(Map<String, dynamic> params) {
   final int rows = params['rows'];
   final int columns = params['columns'];
@@ -35,12 +35,11 @@ Iterable<(int, int)> _calculatePathInBackground(Map<String, dynamic> params) {
   return aStar.findThePath();
 }
 
-/// Core Game Loop
 class NonoCombat extends FlameGame
     with PointerMoveCallbacks, TapCallbacks, SecondaryTapCallbacks {
   late TiledComponent mapComponent;
   late AnimeHero hero;
-  late DummyTarget dummy; // --- MỚI: Entity Bao cát thử nghiệm ---
+  late DummyTarget dummy;
   final ReplayManager replayManager = ReplayManager();
 
   Set<(int, int)> barrierSet = {};
@@ -53,7 +52,6 @@ class NonoCombat extends FlameGame
 
   int currentTick = 0;
 
-  // Thêm biến quản lý Shake vào NonoCombat
   double _shakeDuration = 0.0;
   double _shakeIntensity = 0.0;
   final Random _random = Random();
@@ -62,7 +60,6 @@ class NonoCombat extends FlameGame
   Future<void> onLoad() async {
     super.onLoad();
 
-    // 1. Tải Map
     mapComponent = await TiledComponent.load(
       'map.tmx',
       Vector2.all(GameConfig.tileSize),
@@ -70,34 +67,31 @@ class NonoCombat extends FlameGame
     );
     world.add(mapComponent);
 
-    // 2. Tạo bản đồ vật cản
     _buildBarrierGrid();
 
-    // 3. Tạo Hero
+    // 1. Khởi tạo Hero & đăng ký vào UnitRegistry
     hero = AnimeHero(
       radius: GameConfig.heroRadius,
       position: Vector2(GameConfig.tileSize * 1.5, GameConfig.tileSize * 1.5),
     );
     world.add(hero);
+    UnitRegistry().registerUnit('hero_1', hero);
 
-    // 4. --- MỚI: Khởi tạo Target Dummy ở khu vực ô (6, 4) ---
+    // 2. Khởi tạo Target Dummy & đăng ký vào UnitRegistry
     dummy = DummyTarget(
       radius: 18.0,
       position: Vector2(GameConfig.tileSize * 6.5, GameConfig.tileSize * 4.5),
     );
     world.add(dummy);
+    UnitRegistry().registerUnit('dummy_1', dummy);
 
-    // 5. Cấu hình Camera
     camera.viewfinder.anchor = Anchor.center;
     camera.viewfinder.zoom = GameConfig.defaultZoom;
 
     _setupCameraViewportAndBounds();
     camera.follow(hero);
 
-    // 6. Thêm HUD Overlay
-    // Trong main_game.dart
     final hudHeight = GameConfig.getBottomHudHeight(canvasSize.y);
-    // Lấy padding viền màn hình (hoặc mặc định 20.0 cho màn hình bo cong)
     final safeLeft = MediaQuery.of(buildContext!).padding.left;
 
     final hud = BottomHudComponent(
@@ -179,7 +173,6 @@ class NonoCombat extends FlameGame
     barrierList = barrierSet.toList();
   }
 
-  /// Hàm kích hoạt rung Camera
   void triggerCameraShake({double duration = 0.15, double intensity = 4.0}) {
     _shakeDuration = duration;
     _shakeIntensity = intensity;
@@ -190,7 +183,6 @@ class NonoCombat extends FlameGame
     super.update(dt);
     currentTick++;
 
-    // Xử lý hiệu ứng Shake Camera
     if (_shakeDuration > 0) {
       _shakeDuration -= dt;
       final offsetX = (_random.nextDouble() * 2 - 1) * _shakeIntensity;
@@ -198,7 +190,6 @@ class NonoCombat extends FlameGame
       camera.viewfinder.position += Vector2(offsetX, offsetY);
     }
 
-    // Logic Joystick giữ nguyên...
     final hud = camera.viewport.children
         .whereType<BottomHudComponent>()
         .firstOrNull;
@@ -211,10 +202,8 @@ class NonoCombat extends FlameGame
     }
   }
 
-  // --- TAP / CLICK HANDLERS ---
   @override
   void onTapDown(TapDownEvent event) {
-    // Nếu tap trúng vùng HUD ở dưới màn hình -> Bỏ qua logic tap bản đồ chính
     final hudHeight = GameConfig.getBottomHudHeight(canvasSize.y);
     if (event.canvasPosition.y >= canvasSize.y - hudHeight) {
       return;
@@ -249,11 +238,9 @@ class NonoCombat extends FlameGame
     _handlePointerTarget(event.canvasPosition);
   }
 
-  /// Xử lý phân loại Tap: Tấn công Dummy hay Di chuyển A*
   void _handlePointerTarget(Vector2 canvasPos, {bool forceUpdate = false}) {
     final worldTap = camera.globalToLocal(canvasPos);
 
-    // 1. --- MỚI: Kiểm tra xem vị trí Tap có trúng Hitbox của Dummy hay không ---
     final distToDummy = (worldTap - dummy.position).length;
     if (distToDummy <= dummy.radius + 12.0) {
       final cmd = GameCommand(
@@ -270,7 +257,6 @@ class NonoCombat extends FlameGame
       return;
     }
 
-    // 2. Nếu không tap trúng Dummy -> Tính đường di chuyển A*
     final realWidth = mapComponent.tileMap.map.width;
     final realHeight = mapComponent.tileMap.map.height;
 

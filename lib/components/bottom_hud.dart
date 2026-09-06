@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import '../config/game_config.dart';
 import '../main_game.dart';
 import '../models/game_command.dart';
+import 'minimap.dart';
 
 class BottomHudComponent extends PositionComponent
     with HasGameReference<NonoCombat>, TapCallbacks {
@@ -16,6 +17,7 @@ class BottomHudComponent extends PositionComponent
 
   late JoystickComponent joystick;
   late ButtonComponent skill1Button;
+  late MiniMapComponent miniMap;
 
   BottomHudComponent({required this.hudHeight, this.safeAreaLeft = 16.0});
 
@@ -29,9 +31,19 @@ class BottomHudComponent extends PositionComponent
     final screenWidth = game.canvasSize.x;
 
     // ==========================================
-    // 1. JOYSTICK (Kích thước lớn, góc phải)
+    // 0. NHÚNG MINIMAP COMPONENT
     // ==========================================
-    final joystickRadius = hudHeight * 0.35; // Tăng kích thước Joystick
+    final miniMapSize = hudHeight - 12.0;
+    miniMap = MiniMapComponent(
+      miniMapSize: miniMapSize,
+      customOffset: Vector2(safeAreaLeft, 6.0),
+    );
+    add(miniMap);
+
+    // ==========================================
+    // 1. JOYSTICK
+    // ==========================================
+    final joystickRadius = hudHeight * 0.35;
     final knobRadius = joystickRadius * 0.42;
 
     final rightMargin = hudHeight * 0.1;
@@ -55,23 +67,20 @@ class BottomHudComponent extends PositionComponent
     add(joystick);
 
     // ==========================================
-    // 2. SKILL GRID 2x2 (Khối vuông bên trái Joystick)
+    // 2. SKILL GRID 2x2
     // ==========================================
-    final skillSize = hudHeight * 0.36; // Ô vuông skill rộng rãi
-    final gap = hudHeight * 0.06; // Khoảng cách giữa các ô
+    final skillSize = hudHeight * 0.36;
+    final gap = hudHeight * 0.06;
 
-    // Đẩy cụm skill lấn sang bên trái Joystick
     final gridRightX = joystickCenterX - joystickRadius - (hudHeight * 0.12);
     final gridBottomY = size.y - (hudHeight * 0.1);
 
-    // Tọa độ 4 ô skill (Hàng 1: Skill 3, Ulti R | Hàng 2: Skill 1, Skill 2)
     final col1X = gridRightX - (skillSize * 2 + gap);
     final col2X = gridRightX - skillSize;
 
     final row1Y = gridBottomY - (skillSize * 2 + gap);
     final row2Y = gridBottomY - skillSize;
 
-    // Skill 1 (Góc dưới-trái cụm skill - Ô vuông màu cam)
     skill1Button = ButtonComponent(
       button: RectangleComponent(
         size: Vector2(skillSize, skillSize),
@@ -86,7 +95,6 @@ class BottomHudComponent extends PositionComponent
     );
     add(skill1Button);
 
-    // Skill 2, Skill 3, Ulti R (Khối vuông disable UI)
     _addDisabledSquareSkill(
       Vector2(col2X, row2Y),
       Vector2(skillSize, skillSize),
@@ -132,7 +140,7 @@ class BottomHudComponent extends PositionComponent
   }
 
   // ==========================================
-  // 3. RENDER BỐ CỤC KHU VỰC TRUNG TÂM & MINIMAP
+  // 3. RENDER BỐ CỤC HUD
   // ==========================================
   @override
   void render(Canvas canvas) {
@@ -151,78 +159,16 @@ class BottomHudComponent extends PositionComponent
         ..strokeWidth = 1.0,
     );
 
-    double currentX = safeAreaLeft;
-
-    // ------------------------------------------
-    // A. MINIMAP
-    // ------------------------------------------
+    // Tính toán lại khoảng cách offset sau vị trí MiniMap
     final miniMapSize = size.y - 12.0;
-    final miniMapRect = Rect.fromLTWH(currentX, 6.0, miniMapSize, miniMapSize);
-
-    canvas.drawRect(miniMapRect, Paint()..color = Colors.black);
-    canvas.drawRect(
-      miniMapRect,
-      Paint()
-        ..color = Colors.white30
-        ..style = PaintingStyle.stroke,
-    );
-
-    if (game.mapComponent.isLoaded) {
-      final scaleX = miniMapSize / game.mapComponent.width;
-      final scaleY = miniMapSize / game.mapComponent.height;
-
-      final obstaclePaint = Paint()..color = Colors.grey.shade700;
-      for (final barrier in game.barrierSet) {
-        final bx = currentX + (barrier.$1 * GameConfig.tileSize * scaleX);
-        final by = 6.0 + (barrier.$2 * GameConfig.tileSize * scaleY);
-        canvas.drawRect(
-          Rect.fromLTWH(
-            bx,
-            by,
-            GameConfig.tileSize * scaleX,
-            GameConfig.tileSize * scaleY,
-          ),
-          obstaclePaint,
-        );
-      }
-
-      final dummyPos = game.dummy.position;
-      canvas.drawCircle(
-        Offset(currentX + dummyPos.x * scaleX, 6.0 + dummyPos.y * scaleY),
-        miniMapSize * 0.02,
-        Paint()..color = Colors.redAccent,
-      );
-
-      final heroPos = game.hero.position;
-      canvas.drawCircle(
-        Offset(currentX + heroPos.x * scaleX, 6.0 + heroPos.y * scaleY),
-        miniMapSize * 0.025,
-        Paint()..color = Colors.cyanAccent,
-      );
-
-      final cam = game.camera.visibleWorldRect;
-      canvas.drawRect(
-        Rect.fromLTWH(
-          currentX + cam.left * scaleX,
-          6.0 + cam.top * scaleY,
-          cam.width * scaleX,
-          cam.height * scaleY,
-        ),
-        Paint()
-          ..color = Colors.white
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1.0,
-      );
-    }
-
-    currentX += miniMapSize + (screenWidth * 0.015);
+    double currentX = safeAreaLeft + miniMapSize + (screenWidth * 0.015);
 
     // Không gian dành riêng cho Joystick + Skill Grid 2x2
     final rightControlWidth = hudHeight * 2.1;
     final availableWidth = screenWidth - currentX - rightControlWidth;
 
     // ------------------------------------------
-    // B. AVATAR HERO (~16% vùng giữa)
+    // A. AVATAR HERO (~16% vùng giữa)
     // ------------------------------------------
     final avatarWidth = availableWidth * 0.16;
     final avatarRect = Rect.fromLTWH(currentX, 8.0, avatarWidth, size.y - 16.0);
@@ -258,7 +204,7 @@ class BottomHudComponent extends PositionComponent
     currentX += avatarWidth + (availableWidth * 0.02);
 
     // ------------------------------------------
-    // C. THÔNG TIN TRẠNG THÁI (~52% vùng giữa)
+    // B. THÔNG TIN TRẠNG THÁI (~52% vùng giữa)
     // ------------------------------------------
     final statsWidth = availableWidth * 0.52;
     final fontSizeSmall = (size.y * 0.075).clamp(8.0, 11.5);
@@ -339,7 +285,7 @@ class BottomHudComponent extends PositionComponent
     currentX += statsWidth + (availableWidth * 0.02);
 
     // ------------------------------------------
-    // D. LƯỚI VẬT PHẨM (2x3 INVENTORY ~30% vùng giữa)
+    // C. LƯỚI VẬT PHẨM (2x3 INVENTORY)
     // ------------------------------------------
     _drawText(
       canvas,
@@ -429,25 +375,5 @@ class BottomHudComponent extends PositionComponent
           )
         : pos;
     textPainter.paint(canvas, drawPos);
-  }
-
-  @override
-  void onTapDown(TapDownEvent event) {
-    final miniMapSize = size.y - 12.0;
-    final localPos = event.localPosition;
-
-    if (localPos.x >= safeAreaLeft &&
-        localPos.x <= safeAreaLeft + miniMapSize &&
-        localPos.y >= 6.0 &&
-        localPos.y <= 6.0 + miniMapSize) {
-      final normX = (localPos.x - safeAreaLeft) / miniMapSize;
-      final normY = (localPos.y - 6.0) / miniMapSize;
-
-      final worldTarget = Vector2(
-        normX * game.mapComponent.width,
-        normY * game.mapComponent.height,
-      );
-      game.moveCameraTo(worldTarget);
-    }
   }
 }

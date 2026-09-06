@@ -15,9 +15,11 @@ import 'package:nono_combat_light/replay_system.dart';
 import 'components/anime_hero.dart';
 import 'components/bottom_hud.dart';
 import 'components/dummy_target.dart';
+import 'components/fog_of_war.dart';
 import 'components/projectile.dart';
 import 'config/game_config.dart';
 import 'managers/unit_registry.dart';
+import 'managers/vision_manager.dart';
 import 'models/game_command.dart';
 import 'models/weapon_data.dart';
 
@@ -82,6 +84,16 @@ class NonoCombat extends FlameGame
 
     _buildBarrierGrid();
 
+    // Khởi tạo hệ thống tầm nhìn
+    VisionManager().init(
+      mapComponent.tileMap.map.width,
+      mapComponent.tileMap.map.height,
+    );
+    // Thêm các ô vật cản vào VisionManager
+    for (final barrier in barrierSet) {
+      VisionManager().addVisionBlocker(barrier.$1, barrier.$2);
+    }
+
     // 1. Khởi tạo Hero & đăng ký vào UnitRegistry
     hero = AnimeHero(
       radius: GameConfig.heroRadius,
@@ -117,6 +129,9 @@ class NonoCombat extends FlameGame
       safeAreaLeft: safeLeft > 0 ? safeLeft : 20.0,
     );
     camera.viewport.add(hud);
+
+    // Thêm lớp sương mù vào thế giới
+    world.add(FogOfWarComponent());
   }
 
   Future<void> _loadWeapons() async {
@@ -205,6 +220,23 @@ class NonoCombat extends FlameGame
       }
     }
     barrierList = barrierSet.toList();
+
+    // Quét thêm Layer 'Trees' hoặc 'VisionBlockers' để chặn tầm nhìn
+    final visionLayer = tileMap.getLayer<TileLayer>('Trees') ?? 
+                        tileMap.getLayer<TileLayer>('VisionBlockers');
+    if (visionLayer != null) {
+      for (var y = 0; y < mapHeight; y++) {
+        for (var x = 0; x < mapWidth; x++) {
+          final tileGid = visionLayer.tileData?[y][x].tile;
+          if (tileGid != null && tileGid > 0) {
+            VisionManager().addVisionBlocker(x, y);
+            // Cây cũng thường là vật cản di chuyển
+            barrierSet.add((x, y));
+          }
+        }
+      }
+      barrierList = barrierSet.toList();
+    }
   }
 
   void triggerCameraShake({double duration = 0.15, double intensity = 4.0}) {
@@ -238,6 +270,9 @@ class NonoCombat extends FlameGame
   /// Vòng lặp Logic cố định (Deterministic Tick)
   void _onTick(double dt) {
     currentTick++;
+
+    // 0. Cập nhật tầm nhìn của Hero
+    VisionManager().updateVision(hero.position);
 
     // 1. Xử lý Real-time Input nếu không phải Replay
     if (!replayManager.isReplayMode) {
@@ -378,6 +413,13 @@ class NonoCombat extends FlameGame
 
   void _handlePointerTarget(Vector2 canvasPos, {bool forceUpdate = false}) {
     final worldTap = camera.globalToLocal(canvasPos);
+
+    // Không cho phép tương tác nếu mục tiêu đang nằm trong sương mù chưa khám phá
+    final tx = (worldTap.x / GameConfig.tileSize).floor();
+    final ty = (worldTap.y / GameConfig.tileSize).floor();
+    if (!VisionManager().isVisible(tx, ty) && !VisionManager().isExplored(tx, ty)) {
+      return;
+    }
 
     final distToDummy = (worldTap - dummy.position).length;
     if (distToDummy <= dummy.radius + 12.0) {

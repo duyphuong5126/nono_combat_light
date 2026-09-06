@@ -297,7 +297,7 @@ class AnimeHero extends PositionComponent with HasGameReference<NonoCombat> {
     double minPathDist = double.infinity;
 
     for (final unit in allUnits) {
-      if (unit is DummyTarget && !unit.isDead) {
+      if (unit is DummyTarget && !unit.isDead && unit.isVisibleToPlayer) {
         final dist = (unit.position - position).length;
         if (dist <= autoScanRange && dist < minPathDist) {
           minPathDist = dist;
@@ -361,7 +361,10 @@ class AnimeHero extends PositionComponent with HasGameReference<NonoCombat> {
 
   /// Logic Đánh thường & Đuổi theo (Chase) chuẩn Dota
   void _handleAttackState(double dt) {
-    if (targetEnemy == null || targetEnemy!.isDead || equippedWeapon == null) {
+    if (targetEnemy == null ||
+        targetEnemy!.isDead ||
+        !targetEnemy!.isVisibleToPlayer ||
+        equippedWeapon == null) {
       targetEnemy = null;
       currentState = HeroState.idle;
       return;

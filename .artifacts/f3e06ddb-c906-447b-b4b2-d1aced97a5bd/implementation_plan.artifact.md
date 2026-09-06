@@ -1,22 +1,48 @@
-# Chuẩn hóa Replay (Deterministic) & Nội suy Hình ảnh (Smoothing)
+# Hệ thống Tầm nhìn (Vision System) & Thế giới (Grey-boxing)
 
-Phase này đã hoàn thành việc xây dựng "động cơ" lõi cho game, đảm bảo logic chạy chuẩn xác theo Tick để phục vụ Replay, đồng thời tối ưu hóa hiển thị để đạt độ mượt mà cao nhất.
+Phase này tập trung vào việc xây dựng hệ thống **Sương mù chiến tranh (Fog of War)** và **Tầm nhìn (Line of Sight)**, đồng thời mở rộng các loại địa hình bằng hình khối cơ bản (Grey-boxing) để tạo chiều sâu chiến thuật cho gameplay.
 
-## Thành tựu đã đạt được
+## User Review Required
 
-### [Core Engine]
-- **Fixed Tick Rate (60 Ticks/s):** Logic di chuyển và chiến đấu được khóa chặt ở 60Hz, đảm bảo tính đồng nhất giữa các thiết bị.
-- **Visual Interpolation:** Triển khai nội suy vị trí (`prevPosition` -> `renderPosition`) giúp nhân vật di chuyển mượt mà ở mọi tốc độ khung hình (FPS).
-- **Accumulator Loop:** Tách biệt hoàn toàn thời gian render và thời gian xử lý logic.
+> [!IMPORTANT]
+> Hệ thống tầm nhìn sẽ che khuất kẻ địch và một phần bản đồ mà Hero chưa đi tới hoặc bị vật cản che khuất. Điều này sẽ thay đổi hoàn toàn cách chơi, yêu cầu bạn phải di chuyển cẩn thận hơn.
 
-### [Input System]
-- **Joystick Command Stream:** Chuyển đổi thao tác điều khiển trực tiếp sang hệ thống lệnh (`GameCommand`).
-- **Input Optimization:** Áp dụng làm tròn tọa độ và lọc tín hiệu (Throttle) để tối ưu hóa dung lượng file Replay và tính chính xác.
+## Proposed Changes
 
-### [Entity Logic]
-- **Deterministic Units:** Hero, Dummy và Projectile đã được chuyển sang hệ thống `onTick`.
-- **Unit Collision:** Hoàn thiện va chạm hình tròn giữa các Unit, không còn tình trạng đi xuyên qua nhau.
+### [Component: Config & Models]
 
-## Hướng phát triển tiếp theo (Đề xuất)
-- **Hệ thống Tầm nhìn (Fog of War):** Thiết lập tầm nhìn của Hero, vùng tối và các vật thể che khuất.
-- **Địa hình & Công trình:** Thêm cây cối (che tầm nhìn), nhà cửa, và địa hình cao/thấp (High ground).
+#### [MODIFY] [game_config.dart](file:///Users/nonoka/Documents/dev/nono_combat_light/lib/config/game_config.dart)
+- Thêm `heroVisionRadius`: Bán kính tầm nhìn của Hero (ví dụ: 300.0).
+- Thêm các hằng số màu sắc cho Fog (Sương mù).
+
+### [Component: Vision System]
+
+#### [NEW] [fog_of_war.dart](file:///Users/nonoka/Documents/dev/nono_combat_light/lib/components/fog_of_war.dart)
+- Tạo component quản lý lớp phủ sương mù.
+- Hỗ trợ 3 trạng thái: `Unexplored` (Đen đặc), `Explored` (Bán trong suốt), và `Visible` (Trong suốt).
+- Render bằng `CustomPainter` để tối ưu hiệu năng.
+
+#### [NEW] [vision_logic.dart](file:///Users/nonoka/Documents/dev/nono_combat_light/lib/managers/vision_manager.dart)
+- Quản lý tính toán tầm nhìn dựa trên vị trí Hero.
+- Triển khai thuật toán **Line of Sight (LoS)**: Tầm nhìn bị chặn bởi vật cản (Trees, Walls).
+
+### [Component: World Entities]
+
+#### [MODIFY] [main_game.dart](file:///Users/nonoka/Documents/dev/nono_combat_light/lib/main_game.dart)
+- Cập nhật `_buildBarrierGrid` để nhận diện thêm các Layer từ Tiled như `Trees` (Vật cản tầm nhìn).
+- Tích hợp `VisionManager` vào vòng lặp `onTick`.
+
+#### [MODIFY] [dummy_target.dart](file:///Users/nonoka/Documents/dev/nono_combat_light/lib/components/dummy_target.dart) & [anime_hero.dart](file:///Users/nonoka/Documents/dev/nono_combat_light/lib/components/anime_hero.dart)
+- Thêm thuộc tính `isVisibleToPlayer`.
+- Chỉ render đơn vị khi `isVisibleToPlayer` là true (đối với kẻ địch).
+
+---
+
+## Verification Plan
+
+### Automated Tests
+- Kiểm tra trạng thái `isVisibleToPlayer` của DummyTarget khi Hero di chuyển ra/vào tầm nhìn.
+
+### Manual Verification
+- Di chuyển Hero quanh vật cản (Cây) và kiểm tra xem Fog có che khuất vùng phía sau vật cản không.
+- Đảm bảo DummyTarget biến mất khi nằm trong vùng Fog.

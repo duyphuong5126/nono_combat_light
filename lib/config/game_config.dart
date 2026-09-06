@@ -30,4 +30,9 @@ class GameConfig {
   static const double heroMoveSpeed = 180.0;
   static const double heroTurnRate = 14.0;
   static const double turnTolerance = 0.2;
+
+  // Vision System & Fog of War
+  static const double heroVisionRadius = 280.0;
+  static const Color fogColorUnexplored = Colors.black;
+  static const Color fogColorExplored = Color(0x99000000); // Đen mờ 60%
 }

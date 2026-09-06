@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 
 import '../main_game.dart';
 import '../managers/unit_registry.dart';
+import '../managers/vision_manager.dart';
+import '../config/game_config.dart';
 import 'floating_text.dart';
 
 class DummyTarget extends PositionComponent with HasGameReference<NonoCombat> {
@@ -14,6 +16,7 @@ class DummyTarget extends PositionComponent with HasGameReference<NonoCombat> {
   double armor = 2.0;
 
   bool get isDead => currentHp <= 0;
+  bool isVisibleToPlayer = false;
 
   // Biến phục vụ Hit Flash
   double hitFlashTimer = 0.0;
@@ -67,10 +70,16 @@ class DummyTarget extends PositionComponent with HasGameReference<NonoCombat> {
     if (hitFlashTimer > 0) {
       hitFlashTimer -= dt;
     }
+
+    // Cập nhật trạng thái hiển thị dựa trên VisionManager
+    final tx = (position.x / GameConfig.tileSize).floor();
+    final ty = (position.y / GameConfig.tileSize).floor();
+    isVisibleToPlayer = VisionManager().isVisible(tx, ty);
   }
 
   @override
   void render(Canvas canvas) {
+    if (!isVisibleToPlayer && !game.replayManager.isReplayMode) return;
     super.render(canvas);
     final center = Offset(size.x / 2, size.y / 2);
 

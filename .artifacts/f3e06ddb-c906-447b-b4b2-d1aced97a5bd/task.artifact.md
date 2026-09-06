@@ -1,6 +1,9 @@
-- [x] Thiết lập Fixed Tick Rate Accumulator (60 Ticks/s)
-- [x] Triển khai Visual Interpolation cho Hero (Nội suy mượt mà)
-- [x] Chuẩn hóa Joystick Command Stream (Throttle & Rounding)
-- [x] Refactor toàn bộ Entity (Hero, Dummy, Projectile) sang Tick-based
-- [x] Hoàn thiện va chạm giữa các Unit (Circle Collision)
-- [x] Đồng bộ hóa toàn bộ log sang `debugPrint`
+- [x] Cấu hình các thông số tầm nhìn trong `GameConfig`
+- [x] Xây dựng hệ thống Fog of War (Sương mù chiến tranh)
+    - [x] Tạo `lib/components/fog_of_war.dart`
+    - [x] Tạo `lib/managers/vision_manager.dart`
+- [x] Cập nhật Map & Vật cản tầm nhìn
+    - [x] Nhận diện Layer `Trees` / `VisionBlockers` trong `main_game.dart`
+- [x] Tích hợp Logic Tầm nhìn vào Entity
+    - [x] Cập nhật `AnimeHero` và `DummyTarget` để hỗ trợ hiển thị/ẩn dựa trên tầm nhìn
+- [x] Kiểm tra và tối ưu hóa hiệu năng render sương mù

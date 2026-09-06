@@ -15,6 +15,7 @@ import 'package:nono_combat_light/replay_system.dart';
 import 'components/anime_hero.dart';
 import 'components/bottom_hud.dart';
 import 'components/dummy_target.dart';
+import 'components/projectile.dart';
 import 'config/game_config.dart';
 import 'managers/unit_registry.dart';
 import 'models/game_command.dart';
@@ -56,6 +57,10 @@ class NonoCombat extends FlameGame
   (int, int)? _lastTargetTile;
 
   int currentTick = 0;
+  double _accumulator = 0.0;
+  static const double fixedDeltaTime = 1 / 60; // Tăng lên 60 Ticks để mượt hơn
+
+  Vector2 _activeJoystickDirection = Vector2.zero();
 
   double _shakeDuration = 0.0;
   double _shakeIntensity = 0.0;
@@ -207,27 +212,131 @@ class NonoCombat extends FlameGame
     _shakeIntensity = intensity;
   }
 
+  double getInterpolationAlpha() {
+    return (_accumulator / fixedDeltaTime).clamp(0.0, 1.0);
+  }
+
   @override
   void update(double dt) {
     super.update(dt);
-    currentTick++;
+    _accumulator += dt;
 
+    while (_accumulator >= fixedDeltaTime) {
+      _onTick(fixedDeltaTime);
+      _accumulator -= fixedDeltaTime;
+    }
+
+    // Hiệu ứng Visual (như rung camera) vẫn có thể chạy theo FPS để mượt mà
     if (_shakeDuration > 0) {
       _shakeDuration -= dt;
       final offsetX = (_random.nextDouble() * 2 - 1) * _shakeIntensity;
       final offsetY = (_random.nextDouble() * 2 - 1) * _shakeIntensity;
       camera.viewfinder.position += Vector2(offsetX, offsetY);
     }
+  }
 
-    final hud = camera.viewport.children
-        .whereType<BottomHudComponent>()
-        .firstOrNull;
+  /// Vòng lặp Logic cố định (Deterministic Tick)
+  void _onTick(double dt) {
+    currentTick++;
+
+    // 1. Xử lý Real-time Input nếu không phải Replay
+    if (!replayManager.isReplayMode) {
+      _handleRealTimeJoystick();
+    }
+
+    // 2. Xử lý Commands được lập lịch cho Tick này (Bao gồm cả Replay)
+    final tickCommands = replayManager.recordedCommands
+        .where((cmd) => cmd.tick == currentTick)
+        .toList();
+    for (final cmd in tickCommands) {
+      _executeCommand(cmd);
+    }
+
+    // 3. Thực thi di chuyển Joystick (Deterministic)
+    if (!_activeJoystickDirection.isZero()) {
+      camera.follow(hero);
+      hero.moveWithJoystick(_activeJoystickDirection, dt);
+    }
+
+    // 4. Cập nhật Logic của các Unit (Hero, Dummy,...)
+    final allUnits = UnitRegistry().getAllUnits();
+    for (final unit in allUnits) {
+      if (unit is AnimeHero) {
+        unit.onTick(dt);
+      } else if (unit is DummyTarget) {
+        unit.onTick(dt);
+      }
+    }
+
+    // 5. Cập nhật Logic của Projectiles
+    for (final child in world.children) {
+      if (child is SkillProjectile) {
+        child.onTick(dt);
+      }
+    }
+  }
+
+  void _handleRealTimeJoystick() {
+    final hud =
+        camera.viewport.children.whereType<BottomHudComponent>().firstOrNull;
     if (hud != null) {
       final joystick = hud.joystick;
-      if (!joystick.delta.isZero()) {
-        camera.follow(hero);
-        hero.moveWithJoystick(joystick.relativeDelta, dt);
+      final newDir = joystick.relativeDelta.clone();
+
+      // Throttle: Nhạy hơn một chút (giảm từ 0.05 xuống 0.01)
+      final diff = (newDir - _activeJoystickDirection).length;
+      if (diff > 0.01 ||
+          (newDir.isZero() && !_activeJoystickDirection.isZero())) {
+        final cmd = GameCommand(
+          tick: currentTick,
+          unitId: 'hero_1',
+          type: CommandType.joystick,
+          targetX: (newDir.x * 1000).roundToDouble() / 1000.0,
+          targetY: (newDir.y * 1000).roundToDouble() / 1000.0,
+        );
+        replayManager.recordCommand(cmd);
+        // Trong chế độ Real-time, ta cập nhật ngay để phản hồi tức thì
+        _activeJoystickDirection = Vector2(cmd.targetX, cmd.targetY);
       }
+    }
+  }
+
+  void _executeCommand(GameCommand cmd) {
+    final unit = UnitRegistry().getUnit(cmd.unitId);
+    if (unit == null) return;
+
+    switch (cmd.type) {
+      case CommandType.move:
+        if (unit is AnimeHero && replayManager.isReplayMode) {
+          // Trong chế độ Replay, ta phải kích hoạt lại tìm đường
+          // Chuyển tọa độ thế giới sang tọa độ canvas để dùng lại hàm cũ (hoặc refactor hàm cũ)
+          final canvasPos = camera.localToGlobal(Vector2(cmd.targetX, cmd.targetY));
+          _requestPathToPosition(canvasPos);
+        }
+        break;
+      case CommandType.attack:
+        if (unit is AnimeHero) {
+          final target = UnitRegistry().getUnit(cmd.targetEntityId ?? '');
+          if (target is DummyTarget) {
+            unit.attackTarget(target);
+          }
+        }
+        break;
+      case CommandType.joystick:
+        _activeJoystickDirection = Vector2(cmd.targetX, cmd.targetY);
+        break;
+      case CommandType.useSkill:
+        if (unit is AnimeHero) {
+          unit.castSkill(Vector2(cmd.targetX, cmd.targetY));
+        }
+        break;
+      case CommandType.stop:
+        if (unit is AnimeHero) {
+          unit.stopMoving();
+        }
+        break;
+      default:
+        break;
     }
   }
 
@@ -282,7 +391,7 @@ class NonoCombat extends FlameGame
       );
       replayManager.recordCommand(cmd);
       camera.follow(hero);
-      hero.attackTarget(dummy);
+      // Hero sẽ tự thực thi trong Tick tiếp theo qua _executeCommand
       return;
     }
 
@@ -372,6 +481,8 @@ class NonoCombat extends FlameGame
       );
 
       replayManager.recordCommand(cmd);
+      // Hero sẽ tự thực thi trong Tick tiếp theo qua _executeCommand
+      // Tuy nhiên, A* Pathfinding cần được gán lại
       hero.moveAlongPath(pathPoints, cmd);
     }
   }

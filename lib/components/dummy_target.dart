@@ -60,7 +60,10 @@ class DummyTarget extends PositionComponent with HasGameReference<NonoCombat> {
 
   @override
   void update(double dt) {
-    super.update(dt);
+    // Để trống update, logic xử lý trong onTick
+  }
+
+  void onTick(double dt) {
     if (hitFlashTimer > 0) {
       hitFlashTimer -= dt;
     }

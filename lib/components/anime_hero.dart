@@ -24,6 +24,10 @@ class AnimeHero extends PositionComponent with HasGameReference<NonoCombat> {
   List<Vector2> pathQueue = [];
   Vector2? currentTargetPoint;
 
+  // --- NỘI SUY HÌNH ẢNH (SMOOTHNESS) ---
+  Vector2 prevPosition = Vector2.zero();
+  Vector2 renderPosition = Vector2.zero();
+
   // --- THUỘC TÍNH COMBAT & CHỈ SỐ (DOTA 1 MECHANICS) ---
   double maxHp = 600.0;
   double currentHp = 600.0;
@@ -56,7 +60,10 @@ class AnimeHero extends PositionComponent with HasGameReference<NonoCombat> {
         position: position,
         size: Vector2.all(radius * 2),
         anchor: Anchor.center,
-      );
+      ) {
+    prevPosition = position.clone();
+    renderPosition = position.clone();
+  }
 
   /// Lệnh dừng mọi hành động (Di chuyển, Đánh thường, Gồng chiêu -> Animation Cancel)
   void stopMoving() {
@@ -246,8 +253,16 @@ class AnimeHero extends PositionComponent with HasGameReference<NonoCombat> {
 
   @override
   void update(double dt) {
-    super.update(dt);
+    // Nội suy vị trí hiển thị dựa trên accumulator của game
+    final alpha = game.getInterpolationAlpha();
+    renderPosition = prevPosition + (position - prevPosition) * alpha;
+  }
+
+  /// Logic nghiệp vụ chạy theo Fixed Tick Rate
+  void onTick(double dt) {
     if (isDead) return;
+
+    prevPosition = position.clone();
 
     // Cập nhật Cooldown Skill
     if (currentCooldown > 0) {
@@ -495,7 +510,10 @@ class AnimeHero extends PositionComponent with HasGameReference<NonoCombat> {
 
   @override
   void render(Canvas canvas) {
-    super.render(canvas);
+    // Sử dụng renderPosition thay vì position để mượt mà
+    final drawOffset = renderPosition - position;
+    canvas.save();
+    canvas.translate(drawOffset.x, drawOffset.y);
 
     final center = Offset(size.x / 2, size.y / 2);
     final bodyPaint = Paint()..color = GameConfig.heroColor;
@@ -551,5 +569,7 @@ class AnimeHero extends PositionComponent with HasGameReference<NonoCombat> {
       Rect.fromLTWH(barLeft, mpTop, barWidth * mpPercent, barHeight - 1),
       Paint()..color = Colors.lightBlueAccent,
     );
+
+    canvas.restore();
   }
 }

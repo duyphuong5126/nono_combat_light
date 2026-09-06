@@ -1,12 +1,6 @@
-- [x] Khởi tạo dữ liệu vũ khí và cấu hình project
-    - [x] Tạo file `assets/data/weapons.json`
-    - [x] Đăng ký folder assets trong `pubspec.yaml`
-    - [x] Tạo model `lib/models/weapon_data.dart`
-- [x] Refactor Hero & Core Logic
-    - [x] Tích hợp `equippedWeapon` vào `AnimeHero`
-    - [x] Triển khai logic **Auto-Chase** (Đuổi theo mục tiêu)
-    - [x] Triển khai logic **Auto-Scan** (Tự tìm mục tiêu khi Idle)
-    - [x] Cập nhật hệ thống va chạm Unit (Circle Collision)
-    - [x] Nạp dữ liệu vũ khí trong `main_game.dart`
-    - [x] Chuyển đổi toàn bộ `print` sang `debugPrint`
-- [x] Kiểm tra và xác minh (Verification)
+- [x] Thiết lập Fixed Tick Rate Accumulator (60 Ticks/s)
+- [x] Triển khai Visual Interpolation cho Hero (Nội suy mượt mà)
+- [x] Chuẩn hóa Joystick Command Stream (Throttle & Rounding)
+- [x] Refactor toàn bộ Entity (Hero, Dummy, Projectile) sang Tick-based
+- [x] Hoàn thiện va chạm giữa các Unit (Circle Collision)
+- [x] Đồng bộ hóa toàn bộ log sang `debugPrint`

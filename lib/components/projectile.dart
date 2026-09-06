@@ -28,8 +28,10 @@ class SkillProjectile extends PositionComponent
 
   @override
   void update(double dt) {
-    super.update(dt);
+    // Để trống update, logic xử lý trong onTick
+  }
 
+  void onTick(double dt) {
     final step = speed * dt;
     position += direction * step;
     distanceTraveled += step;

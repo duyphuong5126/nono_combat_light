@@ -1,5 +1,5 @@
 /// Danh sách các loại lệnh giao cho đơn vị
-enum CommandType { move, attack, useSkill, stop, spawnUnit }
+enum CommandType { move, attack, useSkill, stop, spawnUnit, joystick }
 
 /// Model lưu trữ chi tiết từng thao tác người dùng theo Tick thời gian
 class GameCommand {

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:math';
 
 import 'package:a_star_algorithm/a_star_algorithm.dart';
@@ -7,6 +8,7 @@ import 'package:flame/experimental.dart';
 import 'package:flame/game.dart';
 import 'package:flame_tiled/flame_tiled.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart' hide PointerMoveEvent;
 import 'package:nono_combat_light/replay_system.dart';
 
@@ -16,6 +18,7 @@ import 'components/dummy_target.dart';
 import 'config/game_config.dart';
 import 'managers/unit_registry.dart';
 import 'models/game_command.dart';
+import 'models/weapon_data.dart';
 
 Iterable<(int, int)> _calculatePathInBackground(Map<String, dynamic> params) {
   final int rows = params['rows'];
@@ -42,6 +45,8 @@ class NonoCombat extends FlameGame
   late DummyTarget dummy;
   final ReplayManager replayManager = ReplayManager();
 
+  final List<WeaponData> availableWeapons = [];
+
   Set<(int, int)> barrierSet = {};
   List<(int, int)> barrierList = [];
 
@@ -60,6 +65,9 @@ class NonoCombat extends FlameGame
   Future<void> onLoad() async {
     super.onLoad();
 
+    // Nạp dữ liệu vũ khí từ JSON
+    await _loadWeapons();
+
     mapComponent = await TiledComponent.load(
       'map.tmx',
       Vector2.all(GameConfig.tileSize),
@@ -76,6 +84,11 @@ class NonoCombat extends FlameGame
     );
     world.add(hero);
     UnitRegistry().registerUnit('hero_1', hero);
+
+    // Trang bị vũ khí mặc định (kiếm gỗ)
+    if (availableWeapons.isNotEmpty) {
+      hero.equipWeapon(availableWeapons.first);
+    }
 
     // 2. Khởi tạo Target Dummy & đăng ký vào UnitRegistry
     dummy = DummyTarget(
@@ -99,6 +112,22 @@ class NonoCombat extends FlameGame
       safeAreaLeft: safeLeft > 0 ? safeLeft : 20.0,
     );
     camera.viewport.add(hud);
+  }
+
+  Future<void> _loadWeapons() async {
+    try {
+      final String response =
+          await rootBundle.loadString('assets/data/weapons.json');
+      final data = await json.decode(response);
+      if (data['weapons'] != null) {
+        for (var item in data['weapons']) {
+          availableWeapons.add(WeaponData.fromJson(item));
+        }
+      }
+      debugPrint('Loaded ${availableWeapons.length} weapons.');
+    } catch (e) {
+      debugPrint('Error loading weapons: $e');
+    }
   }
 
   void _setupCameraViewportAndBounds() {

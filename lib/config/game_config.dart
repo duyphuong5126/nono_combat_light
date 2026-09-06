@@ -30,8 +30,4 @@ class GameConfig {
   static const double heroMoveSpeed = 180.0;
   static const double heroTurnRate = 14.0;
   static const double turnTolerance = 0.2;
-
-  static const double attackRange = 120.0;
-  static const double attackPoint = 0.3;
-  static const double backswing = 0.4;
 }

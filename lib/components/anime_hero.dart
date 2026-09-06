@@ -8,6 +8,7 @@ import '../enums/hero_state.dart';
 import '../main_game.dart';
 import '../managers/unit_registry.dart';
 import '../models/game_command.dart';
+import '../models/weapon_data.dart';
 import 'dummy_target.dart';
 import 'floating_text.dart';
 import 'projectile.dart';
@@ -29,14 +30,19 @@ class AnimeHero extends PositionComponent with HasGameReference<NonoCombat> {
   double maxMp = 300.0;
   double currentMp = 300.0;
   double baseArmor = 3.0;
-  double attackDamage = 55.0;
+
+  // --- HỆ THỐNG VŨ KHÍ (DATA-DRIVEN) ---
+  WeaponData? equippedWeapon;
 
   bool get isDead => currentState == HeroState.dead || currentHp <= 0;
 
-  // --- QUẢN LÝ TẤN CÔNG (AUTO ATTACK) ---
+  // --- QUẢN LÝ TẤN CÔNG (AUTO ATTACK & CHASE) ---
   DummyTarget? targetEnemy;
   double attackTimer = 0.0;
   bool hasDealtDamageInCurrentAttack = false;
+  static const double chaseRange = 500.0; // Tầm nhìn để đuổi theo
+  static const double autoScanRange =
+      250.0; // Tầm tự động tìm mục tiêu khi idle
 
   // --- QUẢN LÝ KỸ NĂNG (SKILLSHOT) ---
   Vector2? skillTargetPoint;
@@ -71,6 +77,15 @@ class AnimeHero extends PositionComponent with HasGameReference<NonoCombat> {
     stopMoving();
     targetEnemy = target;
     currentState = HeroState.attack;
+  }
+
+  /// Trang bị vũ khí mới
+  void equipWeapon(WeaponData weapon) {
+    equippedWeapon = weapon;
+    // Reset timer khi thay đổi vũ khí để tránh bug animation
+    attackTimer = 0.0;
+    hasDealtDamageInCurrentAttack = false;
+    debugPrint('Equipped: ${weapon.name}');
   }
 
   /// Lệnh Kích hoạt Kỹ năng (Skillshot)
@@ -151,14 +166,37 @@ class AnimeHero extends PositionComponent with HasGameReference<NonoCombat> {
     var nextX = (position.x + stepVector.x).clamp(radius, mapWidth - radius);
     var nextY = (position.y + stepVector.y).clamp(radius, mapHeight - radius);
 
-    // Xử lý trượt tường độc lập trên từng trục
-    if (!_isCollidingWithBarrierAt(Vector2(nextX, position.y))) {
+    // Xử lý trượt tường độc lập trên từng trục (Bao gồm va chạm với Unit)
+    if (!_isCollidingAt(Vector2(nextX, position.y))) {
       position.x = nextX;
     }
 
-    if (!_isCollidingWithBarrierAt(Vector2(position.x, nextY))) {
+    if (!_isCollidingAt(Vector2(position.x, nextY))) {
       position.y = nextY;
     }
+  }
+
+  /// Kiểm tra va chạm tổng hợp (Tường + Unit khác)
+  bool _isCollidingAt(Vector2 candidatePos) {
+    // 1. Va chạm với vật cản trên Map (Tiles)
+    if (_isCollidingWithBarrierAt(candidatePos)) return true;
+
+    // 2. Va chạm với các Unit khác (Entities)
+    final allUnits = UnitRegistry().getAllUnits();
+    for (final unit in allUnits) {
+      if (unit == this || !unit.isMounted) continue;
+
+      double otherRadius = 0;
+      if (unit is AnimeHero) otherRadius = unit.radius;
+      if (unit is DummyTarget) otherRadius = unit.radius;
+
+      final dist = (candidatePos - unit.position).length;
+      if (dist < (radius + otherRadius)) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   /// Va chạm Circle vs AABB Tile
@@ -218,6 +256,7 @@ class AnimeHero extends PositionComponent with HasGameReference<NonoCombat> {
 
     switch (currentState) {
       case HeroState.idle:
+        _handleIdleState(dt);
         break;
       case HeroState.move:
         _handleMoveState(dt);
@@ -232,6 +271,28 @@ class AnimeHero extends PositionComponent with HasGameReference<NonoCombat> {
         break;
       case HeroState.dead:
         break;
+    }
+  }
+
+  /// Logic khi đứng yên: Tự động tìm mục tiêu gần đó
+  void _handleIdleState(double dt) {
+    // Quét tìm kẻ địch mỗi frame khi idle
+    final allUnits = UnitRegistry().getAllUnits();
+    DummyTarget? closestEnemy;
+    double minPathDist = double.infinity;
+
+    for (final unit in allUnits) {
+      if (unit is DummyTarget && !unit.isDead) {
+        final dist = (unit.position - position).length;
+        if (dist <= autoScanRange && dist < minPathDist) {
+          minPathDist = dist;
+          closestEnemy = unit;
+        }
+      }
+    }
+
+    if (closestEnemy != null) {
+      attackTarget(closestEnemy);
     }
   }
 
@@ -266,14 +327,26 @@ class AnimeHero extends PositionComponent with HasGameReference<NonoCombat> {
 
     if (isFacingTarget) {
       final step = GameConfig.heroMoveSpeed * dt;
-      position += distanceVector.normalized() * min(step, distance);
+      final nextPos =
+          position + distanceVector.normalized() * min(step, distance);
+
+      // Khi di chuyển A*, nếu gặp vật cản Unit thì tạm dừng hoặc tìm cách lách (ở đây ta dừng để tránh chồng lấn)
+      if (!_isCollidingAt(nextPos)) {
+        position = nextPos;
+      } else {
+        // Nếu bị kẹt bởi Unit, coi như đã đến nơi hoặc dừng lại
+        pathQueue.clear();
+        currentTargetPoint = null;
+        currentState = HeroState.idle;
+      }
+
       _clampPositionToMap();
     }
   }
 
-  /// Logic Đánh thường chuẩn Dota
+  /// Logic Đánh thường & Đuổi theo (Chase) chuẩn Dota
   void _handleAttackState(double dt) {
-    if (targetEnemy == null || targetEnemy!.isDead) {
+    if (targetEnemy == null || targetEnemy!.isDead || equippedWeapon == null) {
       targetEnemy = null;
       currentState = HeroState.idle;
       return;
@@ -282,8 +355,14 @@ class AnimeHero extends PositionComponent with HasGameReference<NonoCombat> {
     final distanceVector = targetEnemy!.position - position;
     final distance = distanceVector.length;
 
-    // 1. Tự động di chuyển vào tầm đánh nếu chưa đủ gần
-    if (distance > GameConfig.attackRange) {
+    // 1. Tự động di chuyển vào tầm đánh nếu chưa đủ gần (Auto-Chase)
+    if (distance > equippedWeapon!.range) {
+      // Nếu mục tiêu quá xa tầm nhìn đuổi theo thì dừng lại
+      if (distance > chaseRange) {
+        stopMoving();
+        return;
+      }
+
       targetAngle = atan2(distanceVector.y, distanceVector.x);
       _updateRotation(targetAngle, dt);
 
@@ -293,6 +372,7 @@ class AnimeHero extends PositionComponent with HasGameReference<NonoCombat> {
       final nextX = position.x + dir.x * step;
       final nextY = position.y + dir.y * step;
 
+      // Vẫn xử lý va chạm khi đuổi theo
       if (!_isCollidingWithBarrierAt(Vector2(nextX, position.y))) {
         position.x = nextX;
       }
@@ -301,6 +381,9 @@ class AnimeHero extends PositionComponent with HasGameReference<NonoCombat> {
       }
 
       _clampPositionToMap();
+      // Khi đang đuổi theo, reset timer tấn công để đảm bảo khi vào tầm mới bắt đầu vung tay
+      attackTimer = 0.0;
+      hasDealtDamageInCurrentAttack = false;
       return;
     }
 
@@ -313,16 +396,39 @@ class AnimeHero extends PositionComponent with HasGameReference<NonoCombat> {
     // 3. Tiến trình Attack Point & Backswing
     attackTimer += dt;
 
-    if (attackTimer >= GameConfig.attackPoint &&
+    if (attackTimer >= equippedWeapon!.attackPoint &&
         !hasDealtDamageInCurrentAttack) {
       hasDealtDamageInCurrentAttack = true;
-      targetEnemy!.takeDamage(attackDamage);
+      _executeDamage(targetEnemy!);
     }
 
-    final totalAttackCycle = GameConfig.attackPoint + GameConfig.backswing;
-    if (attackTimer >= totalAttackCycle) {
+    if (attackTimer >= equippedWeapon!.totalAttackCycle) {
       attackTimer = 0.0;
       hasDealtDamageInCurrentAttack = false;
+    }
+  }
+
+  void _executeDamage(DummyTarget target) {
+    if (equippedWeapon == null) return;
+
+    if (equippedWeapon!.type == WeaponType.melee) {
+      // Đánh cận chiến: Gây sát thương trực tiếp
+      target.takeDamage(equippedWeapon!.damage);
+      // Hiệu ứng rung camera nhẹ khi đánh trúng
+      game.triggerCameraShake(intensity: 2.0);
+    } else {
+      // Đánh xa: Bắn Projectile
+      final dir = (target.position - position).normalized();
+      final projectile = SkillProjectile(
+        position: position.clone(),
+        direction: dir,
+        speed: equippedWeapon!.projectileSpeed,
+        range: equippedWeapon!.range + 50,
+        // Thêm một chút buffer
+        damage: equippedWeapon!.damage,
+        ownerId: 'hero_1',
+      );
+      game.world.add(projectile);
     }
   }
 

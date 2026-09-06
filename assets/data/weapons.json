@@ -1,0 +1,29 @@
+{
+  "weapons": [
+    {
+      "id": "wooden_sword",
+      "name": "Wooden Sword",
+      "description": "A basic melee weapon.",
+      "type": "melee",
+      "damage": 45.0,
+      "range": 60.0,
+      "attackPoint": 0.3,
+      "backswing": 0.4,
+      "projectileSpeed": 0.0,
+      "spriteAsset": "sword_icon.png"
+    },
+    {
+      "id": "magic_staff",
+      "name": "Magic Staff",
+      "description": "A basic ranged weapon that fires energy bolts.",
+      "type": "ranged",
+      "damage": 55.0,
+      "range": 300.0,
+      "attackPoint": 0.4,
+      "backswing": 0.5,
+      "projectileSpeed": 450.0,
+      "spriteAsset": "staff_icon.png",
+      "projectileAsset": "energy_bolt.png"
+    }
+  ]
+}
